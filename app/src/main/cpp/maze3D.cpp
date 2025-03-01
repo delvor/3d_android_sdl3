@@ -3,12 +3,16 @@
 #include <vector>
 #include <cmath>
 #include <SDL3_image/SDL_image.h>
+#include "objects/player.h"
+#include "utils/utils.h"
+
+
 
 int SCREEN_WIDTH = 600;
 int SCREEN_HEIGHT = 800;
 const int MAP_WIDTH = 8;
 const int MAP_HEIGHT = 8;
-const int TILE_SIZE = 64;
+const int TEXTURE_SIZE = 64;
 const int FOV = 60;
 SDL_Texture *wallTexture;
 
@@ -23,10 +27,7 @@ int map[MAP_WIDTH * MAP_HEIGHT] = {
         1, 1, 1, 1, 1, 1, 1, 1
 };
 
-struct Player {
-    float x, y;
-    float angle;
-} player = {200, 200, 0};
+Player player = {200, 200, 0};
 
 void update();
 
@@ -57,8 +58,8 @@ void castRays(SDL_Renderer *renderer) {
         while (distance < 1000) {
             hitX = player.x + rayX * distance;
             hitY = player.y + rayY * distance;
-            mapX = (int) (hitX / TILE_SIZE);
-            mapY = (int) (hitY / TILE_SIZE);
+            mapX = (int) (hitX / TEXTURE_SIZE);
+            mapY = (int) (hitY / TEXTURE_SIZE);
 
             if (mapX < 0 || mapX >= MAP_WIDTH || mapY < 0 || mapY >= MAP_HEIGHT ||
                 map[mapY * MAP_WIDTH + mapX] == 1) {
@@ -66,8 +67,8 @@ void castRays(SDL_Renderer *renderer) {
                 float prevX = player.x + rayX * (distance - 0.1f);
                 float prevY = player.y + rayY * (distance - 0.1f);
 
-                int prevMapX = (int)(prevX / TILE_SIZE);
-                int prevMapY = (int)(prevY / TILE_SIZE);
+                int prevMapX = (int) (prevX / TEXTURE_SIZE);
+                int prevMapY = (int) (prevY / TEXTURE_SIZE);
 
                 // If X coordinate changed more, it's a vertical wall (left/right)
                 if (prevMapX != mapX) {
@@ -85,21 +86,20 @@ void castRays(SDL_Renderer *renderer) {
         // Get the correct texture X coordinate
         float textureX;
         if (hitVerticalWall) {
-            textureX = fmod(hitY, TILE_SIZE); // Use Y coordinate for vertical walls
+            textureX = fmod(hitY, TEXTURE_SIZE); // Use Y coordinate for vertical walls
         } else {
-            textureX = fmod(hitX, TILE_SIZE); // Use X coordinate for horizontal walls
+            textureX = fmod(hitX, TEXTURE_SIZE); // Use X coordinate for horizontal walls
         }
-        textureX = (textureX / TILE_SIZE) * 64; // Scale texture mapping correctly
+        textureX = (textureX / TEXTURE_SIZE) * 64; // Scale texture mapping correctly
 
         // Define source and destination rectangles
-        SDL_FRect srcRect = { textureX, 0, 1, 64 }; // 1-pixel slice from the texture
-        SDL_FRect destRect = { (float)i, (float)(SCREEN_HEIGHT / 2 - lineHeight / 2), 1, (float)lineHeight };
+        SDL_FRect srcRect = {textureX, 0, 1, 64}; // 1-pixel slice from the texture
+        SDL_FRect destRect = {(float) i, (float) (SCREEN_HEIGHT / 2 - lineHeight / 2), 1,
+                              (float) lineHeight};
 
         SDL_RenderTexture(renderer, wallTexture, &srcRect, &destRect);
     }
 }
-
-
 
 
 void render(SDL_Renderer *renderer) {
@@ -107,6 +107,45 @@ void render(SDL_Renderer *renderer) {
     SDL_RenderClear(renderer);
     castRays(renderer);
     SDL_RenderPresent(renderer);
+}
+
+
+TouchState touch;
+
+void handleTouch(SDL_Event &event) {
+    switch (event.type) {
+        case SDL_EVENT_FINGER_DOWN:
+            touch.startX = event.tfinger.x;
+            touch.startY = event.tfinger.y;
+            touch.isSwiping = true;
+            break;
+
+        case SDL_EVENT_FINGER_UP:
+            if (touch.isSwiping) {
+                float endX = event.tfinger.x;
+                float endY = event.tfinger.y;
+                float deltaX = endX - touch.startX;
+                float deltaY = endY - touch.startY;
+
+                if (fabs(deltaY) > fabs(deltaX)) { // Vertical swipe
+                    if (deltaY < -0.1f) { // Swipe up
+                        player.x += cos(player.angle) * TEXTURE_SIZE / 4;
+                        player.y += sin(player.angle) * TEXTURE_SIZE / 4;
+                    } else if (deltaY > 0.1f) { // Swipe down
+                        player.x -= cos(player.angle) * TEXTURE_SIZE / 4;
+                        player.y -= sin(player.angle) * TEXTURE_SIZE / 4;
+                    }
+                } else { // Horizontal swipe
+                    if (deltaX < -0.1f) { // Swipe left
+                        player.angle -= 0.1f;
+                    } else if (deltaX > 0.1f) { // Swipe right
+                        player.angle += 0.1f;
+                    }
+                }
+            }
+            touch.isSwiping = false;
+            break;
+    }
 }
 
 
@@ -125,7 +164,7 @@ int main(int argc, [[maybe_unused]] char *argv[]) {
 
 
     SDL_Log("Attempting to load texture from: %s", "assets/classic_brick_wall_stockcake.jpg");
-    wallTexture = loadTexture(renderer, "classic_brick_wall_stockcake.jpg");
+    wallTexture = loadTexture(renderer, "bricksx64.png");
     if (!wallTexture) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to load texture: %s", SDL_GetError());
         return 1;
@@ -149,6 +188,11 @@ int main(int argc, [[maybe_unused]] char *argv[]) {
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_EVENT_QUIT)
                 done = 1;
+            else if (event.type == SDL_EVENT_FINGER_DOWN ||
+                     event.type == SDL_EVENT_FINGER_MOTION ||
+                     event.type == SDL_EVENT_FINGER_UP) {
+                handleTouch(event);
+            }
         }
 
         update();
@@ -165,33 +209,7 @@ int main(int argc, [[maybe_unused]] char *argv[]) {
 }
 
 void update() {
-    player.angle += 0.01f;
+    //player.angle += 0.05f;
 }
 
 
-/*
-int main(int argc, [[maybe_unused]] char *argv[]) {
-    SDL_Init(SDL_INIT_VIDEO);
-    SDL_Window *window = SDL_CreateWindow("SDL3 Raycasting", SCREEN_WIDTH, SCREEN_HEIGHT, 0);
-    SDL_Renderer *renderer = SDL_CreateRenderer(window, nullptr);
-
-    wallTexture = loadTexture(renderer, "res/drawable/classic_brick_wall_stockcake.jpg");
-    if (!wallTexture) return 1;
-
-    SDL_Event event;
-    bool running = true;
-    while (running) {
-        while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_EVENT_QUIT) running = false;
-        }
-        render(renderer);
-        SDL_Delay(16);
-    }
-
-    SDL_DestroyTexture(wallTexture);
-    SDL_DestroyRenderer(renderer);
-    SDL_DestroyWindow(window);
-    SDL_Quit();
-    return 0;
-}
-*/

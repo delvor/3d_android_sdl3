@@ -2,6 +2,8 @@ import org.gradle.internal.declarativedsl.parsing.main
 
 plugins {
     alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.compose)
 }
 
 android {
@@ -19,6 +21,7 @@ android {
     }
     buildFeatures {
         prefab = true;
+        compose = true;
     }
 
 
@@ -34,6 +37,7 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+
     }
     externalNativeBuild {
         cmake {
@@ -53,10 +57,12 @@ dependencies {
     implementation(libs.constraintlayout)
     implementation(files("libs/SDL3-3.2.4.aar"))
     implementation(files("libs/SDL3_image-3.2.0.aar"))
+    implementation(libs.activity)
+    implementation(libs.navigation.fragment.ktx)
+    implementation(libs.navigation.ui.ktx)
     testImplementation(libs.junit)
     androidTestImplementation(libs.ext.junit)
     androidTestImplementation(libs.espresso.core)
-    //implementation(name:'SDL3-3.2.4', ext:'aar')
 
 
 }
