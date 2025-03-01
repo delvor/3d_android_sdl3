@@ -10,6 +10,7 @@ const int MAP_WIDTH = 8;
 const int MAP_HEIGHT = 8;
 const int TILE_SIZE = 64;
 const int FOV = 60;
+SDL_Texture *wallTexture;
 
 int map[MAP_WIDTH * MAP_HEIGHT] = {
         1, 1, 1, 1, 1, 1, 1, 1,
@@ -29,7 +30,6 @@ struct Player {
 
 void update();
 
-SDL_Texture *wallTexture = nullptr;
 
 SDL_Texture *loadTexture(SDL_Renderer *renderer, const char *filename) {
     SDL_Surface *surface = IMG_Load(filename);
@@ -52,6 +52,8 @@ void castRays(SDL_Renderer *renderer) {
         float distance = 0.1f;
         float hitX, hitY;
         int mapX, mapY;
+        bool hitVerticalWall = false;
+
         while (distance < 1000) {
             hitX = player.x + rayX * distance;
             hitY = player.y + rayY * distance;
@@ -60,6 +62,17 @@ void castRays(SDL_Renderer *renderer) {
 
             if (mapX < 0 || mapX >= MAP_WIDTH || mapY < 0 || mapY >= MAP_HEIGHT ||
                 map[mapY * MAP_WIDTH + mapX] == 1) {
+                // Determine if the hit was on a vertical or horizontal wall
+                float prevX = player.x + rayX * (distance - 0.1f);
+                float prevY = player.y + rayY * (distance - 0.1f);
+
+                int prevMapX = (int)(prevX / TILE_SIZE);
+                int prevMapY = (int)(prevY / TILE_SIZE);
+
+                // If X coordinate changed more, it's a vertical wall (left/right)
+                if (prevMapX != mapX) {
+                    hitVerticalWall = true;
+                }
                 break;
             }
             distance += 0.1f;
@@ -69,20 +82,24 @@ void castRays(SDL_Renderer *renderer) {
         float correctedDist = distance * cos(rayAngle - player.angle);
         int lineHeight = SCREEN_HEIGHT / (correctedDist * 0.02f);
 
-        // Find exact texture X coordinate
-        float wallHitX = fmod(hitX, TILE_SIZE);
-        float wallHitY = fmod(hitY, TILE_SIZE);
-        float textureX = (rayX > rayY) ? wallHitY : wallHitX;
-        textureX = (textureX / TILE_SIZE) * 64; // Assuming texture width is 64px
+        // Get the correct texture X coordinate
+        float textureX;
+        if (hitVerticalWall) {
+            textureX = fmod(hitY, TILE_SIZE); // Use Y coordinate for vertical walls
+        } else {
+            textureX = fmod(hitX, TILE_SIZE); // Use X coordinate for horizontal walls
+        }
+        textureX = (textureX / TILE_SIZE) * 64; // Scale texture mapping correctly
 
-        // Define source rectangle (part of texture)
-        SDL_FRect srcRect = {textureX, 0, 1, 64}; // 1-pixel wide slice
-        SDL_FRect destRect = {(float) i, (float) (SCREEN_HEIGHT / 2 - lineHeight / 2), 1,
-                              (float) lineHeight};
+        // Define source and destination rectangles
+        SDL_FRect srcRect = { textureX, 0, 1, 64 }; // 1-pixel slice from the texture
+        SDL_FRect destRect = { (float)i, (float)(SCREEN_HEIGHT / 2 - lineHeight / 2), 1, (float)lineHeight };
 
         SDL_RenderTexture(renderer, wallTexture, &srcRect, &destRect);
     }
 }
+
+
 
 
 void render(SDL_Renderer *renderer) {
