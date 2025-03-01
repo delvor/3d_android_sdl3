@@ -17,6 +17,6 @@ struct TouchState {
 };
 
 
-int init(const char *title, int width, int height,  SDL_Window **window, SDL_Renderer **renderer);
+int init(const char *title, int &w, int &h,  SDL_Window **window, SDL_Renderer **renderer);
 
 #endif //TESTSDL_UTILS_H

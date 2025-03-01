@@ -7,7 +7,6 @@
 #include "utils/utils.h"
 
 
-
 int SCREEN_WIDTH = 600;
 int SCREEN_HEIGHT = 800;
 const int MAP_WIDTH = 8;
@@ -154,13 +153,21 @@ int main(int argc, [[maybe_unused]] char *argv[]) {
     SDL_Renderer *renderer;
     int done;
     SDL_Event event;
+    int finish = init("SDL3 Raycasting Maze", SCREEN_WIDTH, SCREEN_HEIGHT, &window, &renderer);
 
-
-    if (SDL_CreateWindowAndRenderer("SDL3 Raycasting", 0, 0, 0, &window, &renderer) == 0) {
+    /*if (SDL_CreateWindowAndRenderer("SDL3 Raycasting", 0, 0, 0, &window, &renderer) == 0) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
                      "SDL_CreateWindowAndRenderer() failed: %s", SDL_GetError());
         return 2;
     }
+    int width, height;
+    if (SDL_GetWindowSize(window, &width, &height) == 0) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_GetCurrentDisplayMode failed: %s",
+                     SDL_GetError());
+        return 1;
+    }
+    SCREEN_WIDTH = width;
+    SCREEN_HEIGHT = height;*/
 
 
     SDL_Log("Attempting to load texture from: %s", "assets/classic_brick_wall_stockcake.jpg");
@@ -170,16 +177,6 @@ int main(int argc, [[maybe_unused]] char *argv[]) {
         return 1;
     }
 
-
-    int width, height;
-    if (SDL_GetWindowSize(window, &width, &height) == 0) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_GetCurrentDisplayMode failed: %s",
-                     SDL_GetError());
-        return 1;
-    }
-
-    SCREEN_WIDTH = width;
-    SCREEN_HEIGHT = height;
 
     SDL_SetWindowSize(window, SCREEN_WIDTH, SCREEN_HEIGHT);
 
@@ -205,7 +202,7 @@ int main(int argc, [[maybe_unused]] char *argv[]) {
 
     SDL_Quit();
 
-    return 0;
+    return finish;
 }
 
 void update() {
