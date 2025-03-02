@@ -13,6 +13,10 @@ const int MAP_WIDTH = 8;
 const int MAP_HEIGHT = 8;
 const int TEXTURE_SIZE = 64;
 const int FOV = 60;
+
+const float PLAYER_MOVE_RATE = 2.0f;
+const float PLAYER_TURN_RATE = 0.1f;
+
 SDL_Texture *wallTexture;
 
 int map[MAP_WIDTH * MAP_HEIGHT] = {
@@ -119,7 +123,7 @@ void handleTouch(SDL_Event &event) {
             touch.isSwiping = true;
             break;
 
-        case SDL_EVENT_FINGER_UP:
+        case SDL_EVENT_FINGER_MOTION:
             if (touch.isSwiping) {
                 float endX = event.tfinger.x;
                 float endY = event.tfinger.y;
@@ -127,23 +131,22 @@ void handleTouch(SDL_Event &event) {
                 float deltaY = endY - touch.startY;
 
                 if (fabs(deltaY) > fabs(deltaX)) { // Vertical swipe
-                    if (deltaY < -0.1f) { // Swipe up
-                        player.x += cos(player.angle) * TEXTURE_SIZE / 4;
-                        player.y += sin(player.angle) * TEXTURE_SIZE / 4;
-                    } else if (deltaY > 0.1f) { // Swipe down
-                        player.x -= cos(player.angle) * TEXTURE_SIZE / 4;
-                        player.y -= sin(player.angle) * TEXTURE_SIZE / 4;
-                    }
+
+                    player.x -= cos(player.angle) * deltaY * PLAYER_MOVE_RATE;
+                    player.y -= sin(player.angle) * deltaY * PLAYER_MOVE_RATE;
+
                 } else { // Horizontal swipe
-                    if (deltaX < -0.1f) { // Swipe left
-                        player.angle -= 0.1f;
-                    } else if (deltaX > 0.1f) { // Swipe right
-                        player.angle += 0.1f;
-                    }
+
+                    player.angle += deltaX * PLAYER_TURN_RATE;
+
                 }
             }
+            break;
+        case SDL_EVENT_FINGER_UP:
+
             touch.isSwiping = false;
             break;
+
     }
 }
 
@@ -154,20 +157,6 @@ int main(int argc, [[maybe_unused]] char *argv[]) {
     int done;
     SDL_Event event;
     int finish = init("SDL3 Raycasting Maze", SCREEN_WIDTH, SCREEN_HEIGHT, &window, &renderer);
-
-    /*if (SDL_CreateWindowAndRenderer("SDL3 Raycasting", 0, 0, 0, &window, &renderer) == 0) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
-                     "SDL_CreateWindowAndRenderer() failed: %s", SDL_GetError());
-        return 2;
-    }
-    int width, height;
-    if (SDL_GetWindowSize(window, &width, &height) == 0) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_GetCurrentDisplayMode failed: %s",
-                     SDL_GetError());
-        return 1;
-    }
-    SCREEN_WIDTH = width;
-    SCREEN_HEIGHT = height;*/
 
 
     SDL_Log("Attempting to load texture from: %s", "assets/classic_brick_wall_stockcake.jpg");

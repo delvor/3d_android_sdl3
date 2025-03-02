@@ -8,6 +8,7 @@
 #include <vector>
 #include <cstdlib>
 #include <ctime>
+#include <random>
 
 int SCREEN_WIDTH = 600;
 int SCREEN_HEIGHT = 800;
@@ -42,13 +43,17 @@ int runMatrixScreensaver() {
         return 1;
     }*/
 
-    std::srand(std::time(0));
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<int> yDist(0, SCREEN_HEIGHT);
+    std::uniform_int_distribution<int> speedDist(2, 6);
 
     std::vector<RainDrop> drops;
-    for (int i = 0; i < SCREEN_WIDTH / COLUMN_WIDTH; i++) {
-        drops.push_back({i * COLUMN_WIDTH, rand() % SCREEN_HEIGHT, 2 + rand() % 5});
-    }
+    drops.reserve(SCREEN_WIDTH / COLUMN_WIDTH); // Pre-allocate memory
 
+    for (int i = 0; i < SCREEN_WIDTH / COLUMN_WIDTH; i++) {
+        drops.push_back({i * COLUMN_WIDTH, yDist(gen), speedDist(gen)});
+    }
     bool running = true;
     SDL_Event event;
 

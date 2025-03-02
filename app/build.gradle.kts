@@ -20,8 +20,8 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures {
-        prefab = true;
-        compose = true;
+        prefab = true
+       
     }
 
 
