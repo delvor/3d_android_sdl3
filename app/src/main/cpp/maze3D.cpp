@@ -18,6 +18,11 @@ const float PLAYER_MOVE_RATE = 2.0f;
 const float PLAYER_TURN_RATE = 0.1f;
 
 SDL_Texture *wallTexture;
+SDL_Texture *floorTexture;
+SDL_Texture *ceilingTexture;
+
+TouchState touch;
+
 
 int map[MAP_WIDTH * MAP_HEIGHT] = {
         1, 1, 1, 1, 1, 1, 1, 1,
@@ -32,7 +37,68 @@ int map[MAP_WIDTH * MAP_HEIGHT] = {
 
 Player player = {200, 200, 0};
 
+
+SDL_Texture *loadTexture(SDL_Renderer *renderer, const char *filename);
 void update();
+void render(SDL_Renderer *renderer);
+void drawFloorAndCeiling(SDL_Renderer *pRenderer);
+void castRays(SDL_Renderer *renderer);
+void handleTouch(SDL_Event &event);
+
+
+int main(int argc, [[maybe_unused]] char *argv[]) {
+    SDL_Window *window;
+    SDL_Renderer *renderer;
+    int done;
+    SDL_Event event;
+    int finish = init("SDL3 Raycasting Maze", SCREEN_WIDTH, SCREEN_HEIGHT, &window, &renderer);
+
+
+    SDL_Log("Attempting to load texture from: %s", "bricksx64.png");
+    wallTexture = loadTexture(renderer, "bricksx64.png");
+    if (!wallTexture) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to load texture: %s", SDL_GetError());
+        return 1;
+    }
+    SDL_Log("Attempting to load texture from: %s", "Gravel64.png");
+    floorTexture = loadTexture(renderer, "Gravel64.png");
+    if (!floorTexture) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to load texture: %s", SDL_GetError());
+        return 1;
+    }
+    SDL_Log("Attempting to load texture from: %s", "WalkStone64.png");
+    ceilingTexture = loadTexture(renderer, "WalkStone64.png");
+    if (!ceilingTexture) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to load texture: %s", SDL_GetError());
+        return 1;
+    }
+
+    SDL_SetWindowSize(window, SCREEN_WIDTH, SCREEN_HEIGHT);
+
+    done = 0;
+    while (!done) {
+        while (SDL_PollEvent(&event)) {
+            if (event.type == SDL_EVENT_QUIT)
+                done = 1;
+            else if (event.type == SDL_EVENT_FINGER_DOWN ||
+                     event.type == SDL_EVENT_FINGER_MOTION ||
+                     event.type == SDL_EVENT_FINGER_UP) {
+                handleTouch(event);
+            }
+        }
+
+        update();
+        render(renderer);
+        SDL_Delay(16); // ~60 FPS
+    }
+
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroyWindow(window);
+
+    SDL_Quit();
+
+    return finish;
+}
 
 
 SDL_Texture *loadTexture(SDL_Renderer *renderer, const char *filename) {
@@ -45,6 +111,7 @@ SDL_Texture *loadTexture(SDL_Renderer *renderer, const char *filename) {
     SDL_DestroySurface(surface);
     return texture;
 }
+
 
 void castRays(SDL_Renderer *renderer) {
     for (int i = 0; i < SCREEN_WIDTH; i++) {
@@ -104,16 +171,53 @@ void castRays(SDL_Renderer *renderer) {
     }
 }
 
-
 void render(SDL_Renderer *renderer) {
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
     SDL_RenderClear(renderer);
+    drawFloorAndCeiling(renderer);
     castRays(renderer);
     SDL_RenderPresent(renderer);
 }
 
 
-TouchState touch;
+void drawFloorAndCeiling(SDL_Renderer *renderer) {
+    for (int y = SCREEN_HEIGHT / 2; y < SCREEN_HEIGHT; y++) {
+        float rowDistance = (0.5f * SCREEN_HEIGHT) / (y - SCREEN_HEIGHT / 2);
+
+        float floorStepX = rowDistance * cos(player.angle);
+        float floorStepY = rowDistance * sin(player.angle);
+
+        float floorX = player.x + floorStepX;
+        float floorY = player.y + floorStepY;
+
+        for (int x = 0; x < SCREEN_WIDTH; x++) {
+            int tileX = (int)(floorX / TEXTURE_SIZE);
+            int tileY = (int)(floorY / TEXTURE_SIZE);
+
+            if (tileX < 0 || tileY < 0 || tileX >= MAP_WIDTH || tileY >= MAP_HEIGHT) {
+                floorX += floorStepX / SCREEN_WIDTH;
+                floorY += floorStepY / SCREEN_WIDTH;
+                continue;
+            }
+
+            int texX = (int)(floorX) % TEXTURE_SIZE;
+            int texY = (int)(floorY) % TEXTURE_SIZE;
+
+            SDL_FRect srcRect = { (float)texX, (float)texY, 1, 1 };
+            SDL_FRect destRect = { (float)x, (float)y, 1, 1 };
+
+            SDL_RenderTexture(renderer, floorTexture, &srcRect, &destRect);
+
+            destRect.y = SCREEN_HEIGHT - y;
+            SDL_RenderTexture(renderer, ceilingTexture, &srcRect, &destRect);
+
+            floorX += floorStepX / SCREEN_WIDTH;
+            floorY += floorStepY / SCREEN_WIDTH;
+        }
+    }
+}
+
+
 
 void handleTouch(SDL_Event &event) {
     switch (event.type) {
@@ -150,49 +254,6 @@ void handleTouch(SDL_Event &event) {
     }
 }
 
-
-int main(int argc, [[maybe_unused]] char *argv[]) {
-    SDL_Window *window;
-    SDL_Renderer *renderer;
-    int done;
-    SDL_Event event;
-    int finish = init("SDL3 Raycasting Maze", SCREEN_WIDTH, SCREEN_HEIGHT, &window, &renderer);
-
-
-    SDL_Log("Attempting to load texture from: %s", "assets/classic_brick_wall_stockcake.jpg");
-    wallTexture = loadTexture(renderer, "bricksx64.png");
-    if (!wallTexture) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to load texture: %s", SDL_GetError());
-        return 1;
-    }
-
-
-    SDL_SetWindowSize(window, SCREEN_WIDTH, SCREEN_HEIGHT);
-
-    done = 0;
-    while (!done) {
-        while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_EVENT_QUIT)
-                done = 1;
-            else if (event.type == SDL_EVENT_FINGER_DOWN ||
-                     event.type == SDL_EVENT_FINGER_MOTION ||
-                     event.type == SDL_EVENT_FINGER_UP) {
-                handleTouch(event);
-            }
-        }
-
-        update();
-        render(renderer);
-        SDL_Delay(16); // ~60 FPS
-    }
-
-    SDL_DestroyRenderer(renderer);
-    SDL_DestroyWindow(window);
-
-    SDL_Quit();
-
-    return finish;
-}
 
 void update() {
     //player.angle += 0.05f;
