@@ -1,5 +1,3 @@
-import org.gradle.internal.declarativedsl.parsing.main
-
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -21,7 +19,7 @@ android {
     }
     buildFeatures {
         prefab = true
-       
+
     }
 
 
@@ -60,6 +58,7 @@ dependencies {
     implementation(libs.activity)
     implementation(libs.navigation.fragment.ktx)
     implementation(libs.navigation.ui.ktx)
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.ext.junit)
     androidTestImplementation(libs.espresso.core)

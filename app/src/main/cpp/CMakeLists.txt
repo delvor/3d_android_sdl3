@@ -10,8 +10,16 @@ cmake_minimum_required(VERSION 3.22.1)
 # with ${CMAKE_PROJECT_NAME} (both CMake variables are in-sync within the top level
 # build script scope).
 project("testsdl")
+
 find_package(SDL3 REQUIRED CONFIG)
 find_package(SDL3_image REQUIRED CONFIG)
+
+
+
+# Define GLM manually as a header-only library
+add_library(glm INTERFACE)
+target_include_directories(glm INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/glm)
+add_library(glm::glm ALIAS glm)
 
 # Creates and names a library, sets it as either STATIC
 # or SHARED, and provides the relative paths to its source code.
@@ -39,8 +47,7 @@ add_library(matrix SHARED
 
 # Find GLESv3 library explicitly (Android NDK provides this)
 find_library(GLES3_LIBRARY NAMES GLESv3 libGLESv3
-        HINTS "${CMAKE_ANDROID_NDK}/sysroot/usr/lib/${CMAKE_ANDROID_ARCH_ABI}"
-        DOC "OpenGL ES 3.0 library")
+       )
 if(NOT GLES3_LIBRARY)
     message(FATAL_ERROR "GLESv3 library not found. Ensure your NDK supports GLESv3.")
 endif()
@@ -52,7 +59,7 @@ endif()
 target_link_libraries(maze3D PRIVATE
         # List libraries link to the target library
         android
-        log SDL3::SDL3 SDL3_image::SDL3_image ${GLES3_LIBRARY})
+        log SDL3::SDL3 SDL3_image::SDL3_image  ${GLES3_LIBRARY}  glm::glm)
 
 target_link_libraries(matrix PRIVATE
         # List libraries link to the target library
