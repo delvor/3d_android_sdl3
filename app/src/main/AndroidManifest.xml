@@ -26,7 +26,7 @@
         <activity android:name=".Maze3DActivity">
             <meta-data
                 android:name="android.app.lib_name"
-                android:value="maze" />
+                android:value="maze3D" />
         </activity>
         <activity android:name=".MatrixNatActivity">
             <meta-data

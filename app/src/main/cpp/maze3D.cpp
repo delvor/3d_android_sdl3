@@ -1,262 +1,444 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
-#include <vector>
+#include <GLES3/gl3.h> // GLES3 for Android
+#define _USE_MATH_DEFINES
 #include <cmath>
-#include <SDL3_image/SDL_image.h>
-#include "objects/player.h"
-#include "utils/utils.h"
+#include <iostream>
+#include <vector>
 
+const int SCREEN_WIDTH = 800;
+const int SCREEN_HEIGHT = 600;
+const bool isCollisionsEnabled = true;
+const bool isPositionLogEnabled = false;
+const bool isCollisionLogEnabled = false;
+const bool isWireRendered = true;
 
-int SCREEN_WIDTH = 600;
-int SCREEN_HEIGHT = 800;
-const int MAP_WIDTH = 8;
-const int MAP_HEIGHT = 8;
-const int TEXTURE_SIZE = 64;
-const int FOV = 60;
+class Shader {
+public:
+    GLuint program;
 
-const float PLAYER_MOVE_RATE = 2.0f;
-const float PLAYER_TURN_RATE = 0.1f;
+    Shader(const char* vertexSource, const char* fragmentSource) {
+        GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
+        glShaderSource(vertexShader, 1, &vertexSource, nullptr);
+        glCompileShader(vertexShader);
+        checkShaderError(vertexShader, "Vertex");
 
-SDL_Texture *wallTexture;
-SDL_Texture *floorTexture;
-SDL_Texture *ceilingTexture;
+        GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+        glShaderSource(fragmentShader, 1, &fragmentSource, nullptr);
+        glCompileShader(fragmentShader);
+        checkShaderError(fragmentShader, "Fragment");
 
-TouchState touch;
+        program = glCreateProgram();
+        glAttachShader(program, vertexShader);
+        glAttachShader(program, fragmentShader);
+        glLinkProgram(program);
 
+        GLint success;
+        glGetProgramiv(program, GL_LINK_STATUS, &success);
+        if (!success) {
+            char infoLog[512];
+            glGetProgramInfoLog(program, 512, nullptr, infoLog);
+            std::cerr << "Shader linking failed: " << infoLog << "\n";
+        }
 
-int map[MAP_WIDTH * MAP_HEIGHT] = {
-        1, 1, 1, 1, 1, 1, 1, 1,
-        1, 0, 0, 0, 0, 0, 0, 1,
-        1, 0, 1, 0, 1, 0, 0, 1,
-        1, 0, 0, 0, 1, 0, 0, 1,
-        1, 0, 1, 0, 0, 0, 0, 1,
-        1, 0, 0, 0, 1, 0, 0, 1,
-        1, 0, 0, 0, 0, 0, 0, 1,
-        1, 1, 1, 1, 1, 1, 1, 1
+        glDeleteShader(vertexShader);
+        glDeleteShader(fragmentShader);
+    }
+
+    void use() { glUseProgram(program); }
+
+    ~Shader() {
+        if (program) glDeleteProgram(program);
+    }
+
+private:
+    void checkShaderError(GLuint shader, const std::string& type) {
+        GLint success;
+        glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
+        if (!success) {
+            char infoLog[512];
+            glGetShaderInfoLog(shader, 512, nullptr, infoLog);
+            std::cerr << type << " compilation failed: " << infoLog << "\n";
+        }
+    }
 };
 
-Player player = {200, 200, 0};
+class Player {
+public:
+    float x, y, z, angle, moveSpeed, turnSpeed, radius;
 
+    Player(float startX, float startY, float startZ)
+            : x(startX), y(startY), z(startZ), angle(90.0f), moveSpeed(0.05f), turnSpeed(2.5f), radius(0.10f) {}
 
-SDL_Texture *loadTexture(SDL_Renderer *renderer, const char *filename);
-void update();
-void render(SDL_Renderer *renderer);
-void drawFloorAndCeiling(SDL_Renderer *pRenderer);
-void castRays(SDL_Renderer *renderer);
-void handleTouch(SDL_Event &event);
+    bool collides(float newX, float newZ, const std::vector<std::vector<int>>& map) {
+        int mapWidth = static_cast<int>(map[0].size());
+        int mapHeight = static_cast<int>(map.size());
 
+        if (newX - radius < 0 || newX + radius > mapWidth || newZ - radius < 0 || newZ + radius > mapHeight) {
+            if (isCollisionLogEnabled) std::cout << "Boundary collision at (" << newX << ", " << newZ << ")\n";
+            return true;
+        }
 
-int main(int argc, [[maybe_unused]] char *argv[]) {
-    SDL_Window *window;
-    SDL_Renderer *renderer;
-    int done;
+        int minX = std::max(0, static_cast<int>(newX - radius));
+        int maxX = std::min(mapWidth - 1, static_cast<int>(newX + radius));
+        int minZ = std::max(0, static_cast<int>(newZ - radius));
+        int maxZ = std::min(mapHeight - 1, static_cast<int>(newZ + radius));
+
+        for (int z = minZ; z <= maxZ; ++z) {
+            for (int x = minX; x <= maxX; ++x) {
+                if (map[z][x] == 1) {
+                    float closestX = std::max(static_cast<float>(x), std::min(newX, static_cast<float>(x + 1)));
+                    float closestZ = std::max(static_cast<float>(z), std::min(newZ, static_cast<float>(z + 1)));
+                    float dx = newX - closestX, dz = newZ - closestZ;
+                    if (std::sqrt(dx * dx + dz * dz) < radius) {
+                        if (isCollisionLogEnabled) std::cout << "Wall collision at (" << x << ", " << z << ")\n";
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    void move(bool forward, bool backward, bool turnLeft, bool turnRight, const std::vector<std::vector<int>>& map) {
+        float rad = angle * M_PI / 180.0f;
+        float dirX = sin(rad), dirZ = -cos(rad);
+        float newX = x, newZ = z;
+
+        if (turnLeft) angle += turnSpeed;
+        if (turnRight) angle -= turnSpeed;
+        if (forward) { newX += dirX * moveSpeed; newZ += dirZ * moveSpeed; }
+        if (backward) { newX -= dirX * moveSpeed; newZ -= dirZ * moveSpeed; }
+
+        if (!collides(newX, newZ, map) || !isCollisionsEnabled) {
+            x = newX; z = newZ;
+        }
+
+        if ((forward || backward || turnLeft || turnRight) && isPositionLogEnabled) {
+            std::cout << "Position: (" << x << ", " << y << ", " << z << "), Angle: " << angle << "°\n";
+        }
+    }
+};
+
+class Level {
+private:
+    std::vector<std::vector<int>> map;
+    int width, height;
+    GLuint vao, vbo, floorVao, floorVbo;
+    Shader *cubeShader, *flatShader;
+    std::vector<float> cubeVertexData, flatVertexData;
+
+    const char* cubeVertexShaderSource = R"(
+        #version 300 es
+        precision mediump float;
+        layout(location = 0) in vec3 aPos;
+        layout(location = 1) in vec3 aColor;
+        out vec3 fragColor;
+        uniform mat4 model;
+        uniform mat4 view;
+        uniform mat4 projection;
+        void main() {
+            gl_Position = projection * view * model * vec4(aPos, 1.0);
+            fragColor = aColor;
+        }
+    )";
+
+    const char* cubeFragmentShaderSource = R"(
+        #version 300 es
+        precision mediump float;
+        in vec3 fragColor;
+        uniform bool useOverrideColor;
+        out vec4 FragColor;
+        void main() {
+            vec3 color = useOverrideColor ? vec3(1.0, 0.0, 0.0) : fragColor; // Fixed black to red
+            FragColor = vec4(color, 1.0);
+        }
+    )";
+
+    const char* flatVertexShaderSource = R"(
+        #version 300 es
+        precision mediump float;
+        layout(location = 0) in vec3 aPos;
+        layout(location = 1) in vec3 aColor;
+        out vec3 fragColor;
+        uniform mat4 model;
+        uniform mat4 view;
+        uniform mat4 projection;
+        void main() {
+            gl_Position = projection * view * model * vec4(aPos, 1.0);
+            fragColor = aColor;
+        }
+    )";
+
+    const char* flatFragmentShaderSource = R"(
+        #version 300 es
+        precision mediump float;
+        in vec3 fragColor;
+        out vec4 FragColor;
+        void main() {
+            FragColor = vec4(fragColor, 1.0);
+        }
+    )";
+
+public:
+    Level(const std::vector<std::vector<int>>& levelData)
+            : map(levelData), height(static_cast<int>(map.size())), width(height > 0 ? static_cast<int>(map[0].size()) : 0) {
+        cubeShader = new Shader(cubeVertexShaderSource, cubeFragmentShaderSource);
+        flatShader = new Shader(flatVertexShaderSource, flatFragmentShaderSource);
+        setupGeometry();
+    }
+
+    ~Level() {
+        glDeleteVertexArrays(1, &vao);
+        glDeleteBuffers(1, &vbo);
+        glDeleteVertexArrays(1, &floorVao);
+        glDeleteBuffers(1, &floorVbo);
+        delete cubeShader;
+        delete flatShader;
+    }
+
+    void setupGeometry() {
+        // Triangulated cube (36 vertices instead of 24)
+        float cubeVertices[] = {
+                // Front (2 triangles)
+                -0.5f, -0.5f, 0.5f, 1.0f, 0.0f, 0.0f,  0.5f, -0.5f, 0.5f, 1.0f, 0.0f, 0.0f,  0.5f, 0.5f, 0.5f, 1.0f, 0.0f, 0.0f,
+                -0.5f, -0.5f, 0.5f, 1.0f, 0.0f, 0.0f,  0.5f, 0.5f, 0.5f, 1.0f, 0.0f, 0.0f,  -0.5f, 0.5f, 0.5f, 1.0f, 0.0f, 0.0f,
+                // Back
+                0.5f, -0.5f, -0.5f, 0.8f, 0.0f, 0.0f, -0.5f, -0.5f, -0.5f, 0.8f, 0.0f, 0.0f, -0.5f, 0.5f, -0.5f, 0.8f, 0.0f, 0.0f,
+                0.5f, -0.5f, -0.5f, 0.8f, 0.0f, 0.0f, -0.5f, 0.5f, -0.5f, 0.8f, 0.0f, 0.0f,  0.5f, 0.5f, -0.5f, 0.8f, 0.0f, 0.0f,
+                // Left
+                -0.5f, -0.5f, -0.5f, 0.9f, 0.0f, 0.0f, -0.5f, -0.5f, 0.5f, 0.9f, 0.0f, 0.0f, -0.5f, 0.5f, 0.5f, 0.9f, 0.0f, 0.0f,
+                -0.5f, -0.5f, -0.5f, 0.9f, 0.0f, 0.0f, -0.5f, 0.5f, 0.5f, 0.9f, 0.0f, 0.0f, -0.5f, 0.5f, -0.5f, 0.9f, 0.0f, 0.0f,
+                // Right
+                0.5f, -0.5f, 0.5f, 1.0f, 0.0f, 0.0f,  0.5f, -0.5f, -0.5f, 1.0f, 0.0f, 0.0f, 0.5f, 0.5f, -0.5f, 1.0f, 0.0f, 0.0f,
+                0.5f, -0.5f, 0.5f, 1.0f, 0.0f, 0.0f,  0.5f, 0.5f, -0.5f, 1.0f, 0.0f, 0.0f,  0.5f, 0.5f, 0.5f, 1.0f, 0.0f, 0.0f,
+                // Top
+                -0.5f, 0.5f, 0.5f, 0.7f, 0.0f, 0.0f,  0.5f, 0.5f, 0.5f, 0.7f, 0.0f, 0.0f,   0.5f, 0.5f, -0.5f, 0.7f, 0.0f, 0.0f,
+                -0.5f, 0.5f, 0.5f, 0.7f, 0.0f, 0.0f,  0.5f, 0.5f, -0.5f, 0.7f, 0.0f, 0.0f,  -0.5f, 0.5f, -0.5f, 0.7f, 0.0f, 0.0f,
+                // Bottom
+                -0.5f, -0.5f, -0.5f, 0.8f, 0.0f, 0.0f, 0.5f, -0.5f, -0.5f, 0.8f, 0.0f, 0.0f, 0.5f, -0.5f, 0.5f, 0.8f, 0.0f, 0.0f,
+                -0.5f, -0.5f, -0.5f, 0.8f, 0.0f, 0.0f, 0.5f, -0.5f, 0.5f, 0.8f, 0.0f, 0.0f, -0.5f, -0.5f, 0.5f, 0.8f, 0.0f, 0.0f
+        };
+
+        cubeVertexData.clear();
+        for (int z = 0; z < height; ++z) {
+            for (int x = 0; x < width; ++x) {
+                if (map[z][x] == 1) {
+                    float r = static_cast<float>(x) / (width - 1);
+                    float g = static_cast<float>(z) / (height - 1);
+                    float b = 0.5f + 0.5f * (1.0f - r - g);
+                    r = std::max(0.0f, std::min(1.0f, r));
+                    g = std::max(0.0f, std::min(1.0f, g));
+                    b = std::max(0.0f, std::min(1.0f, b));
+                    for (int i = 0; i < 216; i += 6) { // 36 verts * 6 floats
+                        cubeVertexData.push_back(cubeVertices[i] + x + 0.5f);
+                        cubeVertexData.push_back(cubeVertices[i + 1]);
+                        cubeVertexData.push_back(cubeVertices[i + 2] + z + 0.5f);
+                        cubeVertexData.push_back(r);
+                        cubeVertexData.push_back(g);
+                        cubeVertexData.push_back(b);
+                    }
+                }
+            }
+        }
+
+        // Triangulated floor and ceiling
+        float floorColor[3] = {0.5f, 0.5f, 0.5f};
+        flatVertexData.insert(flatVertexData.end(), {
+                0.0f, -0.5f, 0.0f, floorColor[0], floorColor[1], floorColor[2],
+                static_cast<float>(width), -0.5f, 0.0f, floorColor[0], floorColor[1], floorColor[2],
+                static_cast<float>(width), -0.5f, static_cast<float>(height), floorColor[0], floorColor[1], floorColor[2],
+                0.0f, -0.5f, 0.0f, floorColor[0], floorColor[1], floorColor[2],
+                static_cast<float>(width), -0.5f, static_cast<float>(height), floorColor[0], floorColor[1], floorColor[2],
+                0.0f, -0.5f, static_cast<float>(height), floorColor[0], floorColor[1], floorColor[2]
+        });
+
+        float ceilingColor[3] = {0.3f, 0.3f, 0.7f};
+        flatVertexData.insert(flatVertexData.end(), {
+                0.0f, 0.5f, 0.0f, ceilingColor[0], ceilingColor[1], ceilingColor[2],
+                static_cast<float>(width), 0.5f, 0.0f, ceilingColor[0], ceilingColor[1], ceilingColor[2],
+                static_cast<float>(width), 0.5f, static_cast<float>(height), ceilingColor[0], ceilingColor[1], ceilingColor[2],
+                0.0f, 0.5f, 0.0f, ceilingColor[0], ceilingColor[1], ceilingColor[2],
+                static_cast<float>(width), 0.5f, static_cast<float>(height), ceilingColor[0], ceilingColor[1], ceilingColor[2],
+                0.0f, 0.5f, static_cast<float>(height), ceilingColor[0], ceilingColor[1], ceilingColor[2]
+        });
+
+        glGenVertexArrays(1, &vao);
+        glGenBuffers(1, &vbo);
+        glBindVertexArray(vao);
+        glBindBuffer(GL_ARRAY_BUFFER, vbo);
+        glBufferData(GL_ARRAY_BUFFER, cubeVertexData.size() * sizeof(float), cubeVertexData.data(), GL_STATIC_DRAW);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+        glEnableVertexAttribArray(1);
+        glBindVertexArray(0);
+
+        glGenVertexArrays(1, &floorVao);
+        glGenBuffers(1, &floorVbo);
+        glBindVertexArray(floorVao);
+        glBindBuffer(GL_ARRAY_BUFFER, floorVbo);
+        glBufferData(GL_ARRAY_BUFFER, flatVertexData.size() * sizeof(float), flatVertexData.data(), GL_STATIC_DRAW);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+        glEnableVertexAttribArray(1);
+        glBindVertexArray(0);
+    }
+
+    void render(const Player& player) {
+        float aspect = static_cast<float>(SCREEN_WIDTH) / SCREEN_HEIGHT;
+        float fovRad = 45.0f * M_PI / 180.0f;
+        float nearPlane = 0.1f, farPlane = 100.0f;
+        float projection[16] = {
+                1.0f / (aspect * tan(fovRad / 2)), 0, 0, 0,
+                0, 1.0f / tan(fovRad / 2), 0, 0,
+                0, 0, -(farPlane + nearPlane) / (farPlane - nearPlane), -1,
+                0, 0, -(2 * farPlane * nearPlane) / (farPlane - nearPlane), 0
+        };
+        float rad = player.angle * M_PI / 180.0f;
+        float eyeX = player.x, eyeY = player.y + 0.05f, eyeZ = player.z;
+        float centerX = eyeX + sin(rad), centerY = eyeY, centerZ = eyeZ - cos(rad);
+        float upX = 0.0f, upY = 1.0f, upZ = 0.0f;
+        float fX = centerX - eyeX, fY = centerY - eyeY, fZ = centerZ - eyeZ;
+        float fLen = sqrt(fX * fX + fY * fY + fZ * fZ);
+        fX /= fLen; fY /= fLen; fZ /= fLen;
+        float sX = upY * fZ - upZ * fY, sY = upZ * fX - upX * fZ, sZ = upX * fY - upY * fX;
+        float sLen = sqrt(sX * sX + sY * sY + sZ * sZ);
+        sX /= sLen; sY /= sLen; sZ /= sLen;
+        float uX = fY * sZ - fZ * sY, uY = fZ * sX - fX * sZ, uZ = fX * sY - fY * sX;
+        float view[16] = {
+                sX, uX, -fX, 0,
+                sY, uY, -fY, 0,
+                sZ, uZ, -fZ, 0,
+                -(sX * eyeX + sY * eyeY + sZ * eyeZ), -(uX * eyeX + uY * eyeY + uZ * eyeZ), -(-fX * eyeX - fY * eyeY - fZ * eyeZ), 1
+        };
+        float model[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+
+        cubeShader->use();
+        glUniformMatrix4fv(glGetUniformLocation(cubeShader->program, "projection"), 1, GL_FALSE, projection);
+        glUniformMatrix4fv(glGetUniformLocation(cubeShader->program, "view"), 1, GL_FALSE, view);
+        glUniformMatrix4fv(glGetUniformLocation(cubeShader->program, "model"), 1, GL_FALSE, model);
+        glBindVertexArray(vao);
+
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        glDisable(GL_CULL_FACE);
+        glUniform1i(glGetUniformLocation(cubeShader->program, "useOverrideColor"), GL_FALSE);
+        glDrawArrays(GL_TRIANGLES, 0, cubeVertexData.size() / 6);
+
+        if (isWireRendered) {
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+            glLineWidth(3.0f);
+            glEnable(GL_CULL_FACE);
+            glCullFace(GL_FRONT);
+            glDepthFunc(GL_LEQUAL);
+            glUniform1i(glGetUniformLocation(cubeShader->program, "useOverrideColor"), GL_TRUE);
+            glEnable(GL_POLYGON_OFFSET_LINE);
+            glPolygonOffset(-1.0f, -1.0f);
+            glDrawArrays(GL_TRIANGLES, 0, cubeVertexData.size() / 6);
+            glDisable(GL_POLYGON_OFFSET_LINE);
+            glLineWidth(1.0f);
+            glDisable(GL_CULL_FACE);
+            glDepthFunc(GL_LESS);
+        }
+
+        glBindVertexArray(0);
+
+        flatShader->use();
+        glUniformMatrix4fv(glGetUniformLocation(flatShader->program, "projection"), 1, GL_FALSE, projection);
+        glUniformMatrix4fv(glGetUniformLocation(flatShader->program, "view"), 1, GL_FALSE, view);
+        glUniformMatrix4fv(glGetUniformLocation(flatShader->program, "model"), 1, GL_FALSE, model);
+        glBindVertexArray(floorVao);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        glDrawArrays(GL_TRIANGLES, 0, flatVertexData.size() / 6);
+        glBindVertexArray(0);
+    }
+
+    const std::vector<std::vector<int>>& getMap() const { return map; }
+};
+
+std::vector<std::vector<int>> generateCustomMap(int width, int height) {
+    if (width <= 10 || height <= 10) {
+        width = 10; height = 10;
+    }
+    std::vector<std::vector<int>> map(height, std::vector<int>(width, 0));
+    srand(static_cast<unsigned>(time(nullptr)));
+    for (int x = 0; x < width; ++x) { map[0][x] = 1; map[height - 1][x] = 1; }
+    for (int z = 0; z < height; ++z) { map[z][0] = 1; map[z][width - 1] = 1; }
+    int spawnSize = 3;
+    for (int z = 1; z < height - 1; z++) {
+        for (int x = 1; x < width - 1; x++) {
+            if (z > spawnSize || x > spawnSize) map[z][x] = (rand() % 100 < 20) ? 1 : 0;
+            else map[z][x] = 0;
+        }
+    }
+    return map;
+}
+
+int main(int argc, char* argv[]) {
+    if (!SDL_Init(SDL_INIT_VIDEO)) {
+        std::cerr << "SDL_Init failed: " << SDL_GetError() << "\n";
+        return -1;
+    }
+
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+
+    SDL_Window* window = SDL_CreateWindow("3D Engine GLES3", SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN);
+    if (!window) {
+        std::cerr << "Window creation failed: " << SDL_GetError() << "\n";
+        SDL_Quit();
+        return -1;
+    }
+
+    SDL_GLContext glContext = SDL_GL_CreateContext(window);
+    if (!glContext) {
+        std::cerr << "GL context creation failed: " << SDL_GetError() << "\n";
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+        return -1;
+    }
+
+    std::cout << "OpenGL ES Version: " << glGetString(GL_VERSION) << "\n";
+
+    glEnable(GL_DEPTH_TEST);
+    int w, h;
+    SDL_GetWindowSize(window, &w, &h);
+    glViewport(0, 0, w, h);
+    glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+
+    Player player(1.5f, 0.0f, 1.5f);
+    Level level(generateCustomMap(30, 30));
+
+    bool running = true;
     SDL_Event event;
-    int finish = init("SDL3 Raycasting Maze", SCREEN_WIDTH, SCREEN_HEIGHT, &window, &renderer);
+    bool moveForward = false, moveBackward = false, turnLeft = false, turnRight = false;
 
-
-    SDL_Log("Attempting to load texture from: %s", "bricksx64.png");
-    wallTexture = loadTexture(renderer, "bricksx64.png");
-    if (!wallTexture) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to load texture: %s", SDL_GetError());
-        return 1;
-    }
-    SDL_Log("Attempting to load texture from: %s", "Gravel64.png");
-    floorTexture = loadTexture(renderer, "Gravel64.png");
-    if (!floorTexture) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to load texture: %s", SDL_GetError());
-        return 1;
-    }
-    SDL_Log("Attempting to load texture from: %s", "WalkStone64.png");
-    ceilingTexture = loadTexture(renderer, "WalkStone64.png");
-    if (!ceilingTexture) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to load texture: %s", SDL_GetError());
-        return 1;
-    }
-
-    SDL_SetWindowSize(window, SCREEN_WIDTH, SCREEN_HEIGHT);
-
-    done = 0;
-    while (!done) {
+    while (running) {
         while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_EVENT_QUIT)
-                done = 1;
-            else if (event.type == SDL_EVENT_FINGER_DOWN ||
-                     event.type == SDL_EVENT_FINGER_MOTION ||
-                     event.type == SDL_EVENT_FINGER_UP) {
-                handleTouch(event);
+            if (event.type == SDL_EVENT_QUIT) running = false;
+            else if (event.type == SDL_EVENT_FINGER_DOWN) {
+                float x = event.tfinger.x * w, y = event.tfinger.y * h;
+                if (x < w / 3) turnLeft = true;
+                else if (x > 2 * w / 3) turnRight = true;
+                if (y < h / 2) moveForward = true;
+                else moveBackward = true;
+            }
+            else if (event.type == SDL_EVENT_FINGER_UP) {
+                moveForward = moveBackward = turnLeft = turnRight = false;
             }
         }
 
-        update();
-        render(renderer);
-        SDL_Delay(16); // ~60 FPS
+        player.move(moveForward, moveBackward, turnLeft, turnRight, level.getMap());
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        level.render(player);
+        SDL_GL_SwapWindow(window);
+        SDL_Delay(16);
     }
 
-    SDL_DestroyRenderer(renderer);
+    SDL_GL_DestroyContext(glContext);
     SDL_DestroyWindow(window);
-
     SDL_Quit();
-
-    return finish;
+    return 0;
 }
-
-
-SDL_Texture *loadTexture(SDL_Renderer *renderer, const char *filename) {
-    SDL_Surface *surface = IMG_Load(filename);
-    if (!surface) {
-        SDL_Log("Failed to load image: %s", SDL_GetError());
-        return nullptr;
-    }
-    SDL_Texture *texture = SDL_CreateTextureFromSurface(renderer, surface);
-    SDL_DestroySurface(surface);
-    return texture;
-}
-
-
-void castRays(SDL_Renderer *renderer) {
-    for (int i = 0; i < SCREEN_WIDTH; i++) {
-        float rayAngle = (player.angle - (FOV / 2.0f) * ((float) M_PI / 180.0f)) +
-                         ((float) i / (float) SCREEN_WIDTH) * (FOV * ((float) M_PI / 180.0f));
-        float rayX = cos(rayAngle);
-        float rayY = sin(rayAngle);
-
-        float distance = 0.1f;
-        float hitX, hitY;
-        int mapX, mapY;
-        bool hitVerticalWall = false;
-
-        while (distance < 1000) {
-            hitX = player.x + rayX * distance;
-            hitY = player.y + rayY * distance;
-            mapX = (int) (hitX / TEXTURE_SIZE);
-            mapY = (int) (hitY / TEXTURE_SIZE);
-
-            if (mapX < 0 || mapX >= MAP_WIDTH || mapY < 0 || mapY >= MAP_HEIGHT ||
-                map[mapY * MAP_WIDTH + mapX] == 1) {
-                // Determine if the hit was on a vertical or horizontal wall
-                float prevX = player.x + rayX * (distance - 0.1f);
-                float prevY = player.y + rayY * (distance - 0.1f);
-
-                int prevMapX = (int) (prevX / TEXTURE_SIZE);
-                int prevMapY = (int) (prevY / TEXTURE_SIZE);
-
-                // If X coordinate changed more, it's a vertical wall (left/right)
-                if (prevMapX != mapX) {
-                    hitVerticalWall = true;
-                }
-                break;
-            }
-            distance += 0.1f;
-        }
-
-        // Correct fish-eye distortion
-        float correctedDist = distance * cos(rayAngle - player.angle);
-        int lineHeight = SCREEN_HEIGHT / (correctedDist * 0.02f);
-
-        // Get the correct texture X coordinate
-        float textureX;
-        if (hitVerticalWall) {
-            textureX = fmod(hitY, TEXTURE_SIZE); // Use Y coordinate for vertical walls
-        } else {
-            textureX = fmod(hitX, TEXTURE_SIZE); // Use X coordinate for horizontal walls
-        }
-        textureX = (textureX / TEXTURE_SIZE) * 64; // Scale texture mapping correctly
-
-        // Define source and destination rectangles
-        SDL_FRect srcRect = {textureX, 0, 1, 64}; // 1-pixel slice from the texture
-        SDL_FRect destRect = {(float) i, (float) (SCREEN_HEIGHT / 2 - lineHeight / 2), 1,
-                              (float) lineHeight};
-
-        SDL_RenderTexture(renderer, wallTexture, &srcRect, &destRect);
-    }
-}
-
-void render(SDL_Renderer *renderer) {
-    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-    SDL_RenderClear(renderer);
-    drawFloorAndCeiling(renderer);
-    castRays(renderer);
-    SDL_RenderPresent(renderer);
-}
-
-
-void drawFloorAndCeiling(SDL_Renderer *renderer) {
-    for (int y = SCREEN_HEIGHT / 2; y < SCREEN_HEIGHT; y++) {
-        float rowDistance = (0.5f * SCREEN_HEIGHT) / (y - SCREEN_HEIGHT / 2);
-
-        float floorStepX = rowDistance * cos(player.angle);
-        float floorStepY = rowDistance * sin(player.angle);
-
-        float floorX = player.x + floorStepX;
-        float floorY = player.y + floorStepY;
-
-        for (int x = 0; x < SCREEN_WIDTH; x++) {
-            int tileX = (int)(floorX / TEXTURE_SIZE);
-            int tileY = (int)(floorY / TEXTURE_SIZE);
-
-            if (tileX < 0 || tileY < 0 || tileX >= MAP_WIDTH || tileY >= MAP_HEIGHT) {
-                floorX += floorStepX / SCREEN_WIDTH;
-                floorY += floorStepY / SCREEN_WIDTH;
-                continue;
-            }
-
-            int texX = (int)(floorX) % TEXTURE_SIZE;
-            int texY = (int)(floorY) % TEXTURE_SIZE;
-
-            SDL_FRect srcRect = { (float)texX, (float)texY, 1, 1 };
-            SDL_FRect destRect = { (float)x, (float)y, 1, 1 };
-
-            SDL_RenderTexture(renderer, floorTexture, &srcRect, &destRect);
-
-            destRect.y = SCREEN_HEIGHT - y;
-            SDL_RenderTexture(renderer, ceilingTexture, &srcRect, &destRect);
-
-            floorX += floorStepX / SCREEN_WIDTH;
-            floorY += floorStepY / SCREEN_WIDTH;
-        }
-    }
-}
-
-
-
-void handleTouch(SDL_Event &event) {
-    switch (event.type) {
-        case SDL_EVENT_FINGER_DOWN:
-            touch.startX = event.tfinger.x;
-            touch.startY = event.tfinger.y;
-            touch.isSwiping = true;
-            break;
-
-        case SDL_EVENT_FINGER_MOTION:
-            if (touch.isSwiping) {
-                float endX = event.tfinger.x;
-                float endY = event.tfinger.y;
-                float deltaX = endX - touch.startX;
-                float deltaY = endY - touch.startY;
-
-                if (fabs(deltaY) > fabs(deltaX)) { // Vertical swipe
-
-                    player.x -= cos(player.angle) * deltaY * PLAYER_MOVE_RATE;
-                    player.y -= sin(player.angle) * deltaY * PLAYER_MOVE_RATE;
-
-                } else { // Horizontal swipe
-
-                    player.angle += deltaX * PLAYER_TURN_RATE;
-
-                }
-            }
-            break;
-        case SDL_EVENT_FINGER_UP:
-
-            touch.isSwiping = false;
-            break;
-
-    }
-}
-
-
-void update() {
-    //player.angle += 0.05f;
-}
-
-

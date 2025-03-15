@@ -12,6 +12,7 @@ cmake_minimum_required(VERSION 3.22.1)
 project("testsdl")
 find_package(SDL3 REQUIRED CONFIG)
 find_package(SDL3_image REQUIRED CONFIG)
+
 # Creates and names a library, sets it as either STATIC
 # or SHARED, and provides the relative paths to its source code.
 # You can define multiple libraries, and CMake builds them for you.
@@ -25,7 +26,7 @@ find_package(SDL3_image REQUIRED CONFIG)
 # System.loadLibrary() and pass the name of the library defined here;
 # for GameActivity/NativeActivity derived applications, the same library name must be
 # used in the AndroidManifest.xml file.
-add_library(maze SHARED
+add_library(maze3D SHARED
         # List C/C++ source files with relative paths to this CMakeLists.txt.
         maze3D.cpp
         utils/utils.cpp
@@ -33,16 +34,25 @@ add_library(maze SHARED
 add_library(matrix SHARED
         matrix.cpp
         utils/utils.cpp
-        utils/utils.h)
+        utils/utils.h
+)
+
+# Find GLESv3 library explicitly (Android NDK provides this)
+find_library(GLES3_LIBRARY NAMES GLESv3 libGLESv3
+        HINTS "${CMAKE_ANDROID_NDK}/sysroot/usr/lib/${CMAKE_ANDROID_ARCH_ABI}"
+        DOC "OpenGL ES 3.0 library")
+if(NOT GLES3_LIBRARY)
+    message(FATAL_ERROR "GLESv3 library not found. Ensure your NDK supports GLESv3.")
+endif()
 
 
 # Specifies libraries CMake should link to your target library. You
 # can link libraries from various origins, such as libraries defined in this
 # build script, prebuilt third-party libraries, or Android system libraries.
-target_link_libraries(maze PRIVATE
+target_link_libraries(maze3D PRIVATE
         # List libraries link to the target library
         android
-        log SDL3::SDL3 SDL3_image::SDL3_image)
+        log SDL3::SDL3 SDL3_image::SDL3_image ${GLES3_LIBRARY})
 
 target_link_libraries(matrix PRIVATE
         # List libraries link to the target library
