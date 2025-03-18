@@ -22,6 +22,11 @@ const bool isPositionLogEnabled = false;
 const bool isCollisionLogEnabled = false;
 const bool isWireRendered = true;
 
+extern "C" void* iconv_open(const char* tocode, const char* fromcode) {
+    // Dummy implementation
+    return nullptr;
+}
+
 std::vector<glm::vec3> convertQuadsToTriangles(const std::vector<glm::vec3> &quadVertices) {
     std::vector<glm::vec3> triangleVertices;
 

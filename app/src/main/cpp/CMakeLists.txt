@@ -18,7 +18,8 @@ find_package(SDL3_image REQUIRED CONFIG)
 
 # Define GLM manually as a header-only library
 add_library(glm INTERFACE)
-target_include_directories(glm INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/glm)
+target_include_directories(glm INTERFACE ./../../../libs/glm)
+
 add_library(glm::glm ALIAS glm)
 
 # Creates and names a library, sets it as either STATIC

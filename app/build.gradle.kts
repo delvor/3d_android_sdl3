@@ -10,12 +10,21 @@ android {
 
     defaultConfig {
         applicationId = "my.sdlc.testsdl"
-        minSdk = 27
+        minSdk = 26
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        ndk {
+            abiFilters.add("arm64-v8a")
+            abiFilters.add( "x86_64")
+            abiFilters.add("armeabi-v7a")
+            abiFilters.add("x86")
+
+        }
+
     }
     buildFeatures {
         prefab = true
