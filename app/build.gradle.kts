@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "my.sdlc.testsdl"
+    namespace = "my.opengl.testsdl"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "my.sdlc.testsdl"
+        applicationId = "my.opengl.testsdl"
         minSdk = 26
         targetSdk = 35
         versionCode = 1

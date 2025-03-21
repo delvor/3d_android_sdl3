@@ -1,4 +1,4 @@
-package my.sdlc.testsdl;
+package my.opengl.testsdl;
 
 import org.junit.Test;
 

@@ -1,11 +1,6 @@
-package my.sdlc.testsdl;
+package my.opengl.testsdl;
 
 
-import static org.libsdl.app.SDL.setContext;
-
-import android.os.Bundle;
-
-import org.libsdl.app.SDL;
 import org.libsdl.app.SDLActivity;
 
 public class Maze3DActivity extends SDLActivity {
