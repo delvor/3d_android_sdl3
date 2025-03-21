@@ -3,4 +3,5 @@
 
     <string name="launch_3d_maze_activity_opengles_3_0">Launch 3D Maze Activity (OpenglES 3.0)</string>
     <string name="launch_matrix_screensaver_sdl3">Launch Matrix Screensaver (SDL3)</string>
+    <string name="launch_matrix_screensaver_sdl_delay">Launch Matrix Screensaver (SDL_Delay)</string>
 </resources>

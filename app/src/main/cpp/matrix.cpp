@@ -1,40 +1,108 @@
-#include "SDL3/SDL.h"
+#include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
-#include "SDL3_ttf/SDL_ttf.h" // Add SDL_ttf for text rendering
+#include <SDL3_ttf/SDL_ttf.h>
 #include "utils/utils.h"
 #include <vector>
 #include <cstdlib>
 #include <ctime>
 #include <random>
 #include <string>
+#include <map>
+#include <cstring>
 
 // Screen dimensions
 int SCREEN_WIDTH = 600;
 int SCREEN_HEIGHT = 800;
-const int COLUMN_WIDTH = 10; // Width between columns
-const int CHAR_SIZE = 16;    // Size of each character
-const int TRAIL_LENGTH = 20; // Number of characters in trail
+const int COLUMN_WIDTH = 10;
+const int CHAR_SIZE = 16;
+const int TRAIL_LENGTH_MEAN = 80; // Mean trail length
+const int TRAIL_LENGTH_RANGE = 30; // ±20 variation
+
+// Cache for character textures with different alpha levels
+struct CharTextureCache {
+    std::map<char, std::vector<SDL_Texture *>> textures;
+    std::map<char, std::vector<std::pair<int, int>>> dimensions;
+    int maxAlphaLevels;
+
+    CharTextureCache(int levels) : maxAlphaLevels(levels) {}
+
+    void init(SDL_Renderer *renderer, TTF_Font *font, const std::string &matrixChars) {
+        for (char c: matrixChars) {
+            std::vector<SDL_Texture *> &alphaTextures = textures[c];
+            std::vector<std::pair<int, int>> &dims = dimensions[c];
+            alphaTextures.resize(maxAlphaLevels, nullptr);
+            dims.resize(maxAlphaLevels, {0, 0});
+
+            for (int i = 0; i < maxAlphaLevels; i++) {
+                int alpha = 255 * (i + 1) / maxAlphaLevels;
+                SDL_Color color = {0, static_cast<Uint8>(255 * (i + 1) / maxAlphaLevels), 0,
+                                   static_cast<Uint8>(alpha)};
+                std::string charStr(1, c);
+                SDL_Surface *textSurface = TTF_RenderText_Solid(font, charStr.c_str(),
+                                                                strlen(charStr.c_str()), color);
+                if (textSurface) {
+                    alphaTextures[i] = SDL_CreateTextureFromSurface(renderer, textSurface);
+                    dims[i] = {textSurface->w, textSurface->h};
+                    SDL_DestroySurface(textSurface);
+                }
+            }
+        }
+    }
+
+    SDL_Texture *getTexture(char c, int alphaLevel) {
+        auto it = textures.find(c);
+        if (it != textures.end() && alphaLevel >= 0 && alphaLevel < maxAlphaLevels) {
+            return it->second[alphaLevel];
+        }
+        return nullptr;
+    }
+
+    std::pair<int, int> getDimensions(char c, int alphaLevel) {
+        auto it = dimensions.find(c);
+        if (it != dimensions.end() && alphaLevel >= 0 && alphaLevel < maxAlphaLevels) {
+            return it->second[alphaLevel];
+        }
+        return {CHAR_SIZE, CHAR_SIZE};
+    }
+
+    void cleanup() {
+        for (auto &pair: textures) {
+            for (SDL_Texture *texture: pair.second) {
+                if (texture) SDL_DestroyTexture(texture);
+            }
+        }
+    }
+};
 
 struct RainDrop {
-    int x;                     // Column x-position
-    std::vector<int> yTrail;   // Trail positions (y-coordinates)
-    std::vector<char> chars;   // Characters in the trail
-    int speed;                 // Speed of drop
-    int trailIndex;            // Current index in trail
+    int x;
+    std::vector<float> yTrail;
+    std::vector<char> chars;
+    float speed; // Pixels per second
+    int trailIndex;
+    int trailLength;
 
-    RainDrop(int startX, int startY, int spd) : x(startX), speed(spd), trailIndex(0) {
-        // Initialize trail with starting position
-        yTrail.resize(TRAIL_LENGTH, startY);
-        chars.resize(TRAIL_LENGTH, randomChar());
+    RainDrop(int startX, float startY, float spd, int maxTrail) : x(startX), speed(spd),
+                                                                  trailIndex(0),
+                                                                  trailLength(maxTrail) {
+        yTrail.resize(trailLength, startY); // Start off-screen, trail builds downward
+        chars.resize(trailLength, randomChar());
     }
 
     static char randomChar() {
-        // Randomly select a Matrix-like character (e.g., letters, numbers, symbols)
-        const std::string matrixChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()";
+        static const std::string matrixChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()";
         static std::random_device rd;
         static std::mt19937 gen(rd());
         static std::uniform_int_distribution<> dist(0, matrixChars.size() - 1);
         return matrixChars[dist(gen)];
+    }
+
+    void reset(float startY) {
+        trailIndex = 0;
+        for (int i = 0; i < trailLength; i++) {
+            yTrail[i] = startY; // Reset all positions to start off-screen
+            chars[i] = randomChar();
+        }
     }
 };
 
@@ -42,17 +110,15 @@ int runMatrixScreensaver() {
     SDL_Window *window;
     SDL_Renderer *renderer;
 
-    // Initialize SDL and SDL_ttf
     int finish = init("SDL3 Matrix", SCREEN_WIDTH, SCREEN_HEIGHT, &window, &renderer);
     if (finish != 0) return finish;
 
-    if (!TTF_Init() ) {
-        SDL_Log("TTF_Init failed: %s",  SDL_GetError());
+    if (!TTF_Init()) {
+        SDL_Log("TTF_Init failed: %s", SDL_GetError());
         return 1;
     }
 
-    // Load a font (you'll need a TrueType font file, e.g., "arial.ttf")
-    TTF_Font *font = TTF_OpenFont("arial.ttf", CHAR_SIZE); // Replace with your font path
+    TTF_Font *font = TTF_OpenFont("arial.ttf", CHAR_SIZE);
     if (!font) {
         SDL_Log("TTF_OpenFont failed: %s", SDL_GetError());
         TTF_Quit();
@@ -65,21 +131,36 @@ int runMatrixScreensaver() {
     // Random number generators
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<int> yDist(0, SCREEN_HEIGHT);
-    std::uniform_int_distribution<int> speedDist(6, 26);
+    std::uniform_int_distribution<int> yDist(-CHAR_SIZE * (TRAIL_LENGTH_MEAN + TRAIL_LENGTH_RANGE),
+                                             0);
+    std::uniform_real_distribution<float> speedDist(100.0f, 400.0f);
+    std::uniform_int_distribution<int> trailDist(TRAIL_LENGTH_MEAN - TRAIL_LENGTH_RANGE,
+                                                 TRAIL_LENGTH_MEAN + TRAIL_LENGTH_RANGE);
 
-    // Initialize rain drops
+    // Texture cache with max possible trail length
+    int maxTrailLength = TRAIL_LENGTH_MEAN + TRAIL_LENGTH_RANGE;
+    CharTextureCache charCache(maxTrailLength);
+    charCache.init(renderer, font, "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()");
+
+    // Initialize rain drops with random trail lengths
     std::vector<RainDrop> drops;
     drops.reserve(SCREEN_WIDTH / COLUMN_WIDTH);
     for (int i = 0; i < SCREEN_WIDTH / COLUMN_WIDTH; i++) {
-        int startY = yDist(gen);
-        drops.emplace_back(i * COLUMN_WIDTH, startY, speedDist(gen));
+        float startY = static_cast<float>(yDist(gen));
+        int trailLength = trailDist(gen);
+        drops.emplace_back(i * COLUMN_WIDTH, startY, speedDist(gen), trailLength);
     }
 
     bool running = true;
     SDL_Event event;
+    Uint64 lastTime = SDL_GetTicks(); // Updated to SDL_GetTicks64
+    float deltaTime = 0.0f;
 
     while (running) {
+        Uint64 currentTime = SDL_GetTicks();
+        deltaTime = (currentTime - lastTime) / 1000.0f;
+        lastTime = currentTime;
+
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_EVENT_QUIT) {
                 running = false;
@@ -87,66 +168,48 @@ int runMatrixScreensaver() {
             }
         }
 
-        // Clear screen
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
         SDL_RenderClear(renderer);
 
-        // Update and draw Matrix rain
-        for (auto &drop : drops) {
-            // Update trail positions
-            if (drop.trailIndex < TRAIL_LENGTH) {
-                drop.yTrail[drop.trailIndex] = drop.yTrail[drop.trailIndex] + drop.speed;
+        for (auto &drop: drops) {
+            if (drop.trailIndex < drop.trailLength) {
+                drop.yTrail[drop.trailIndex] += drop.speed * deltaTime;
                 drop.chars[drop.trailIndex] = RainDrop::randomChar();
+                drop.trailIndex++;
             } else {
-                // Shift trail up and add new character at the bottom
-                for (int i = 0; i < TRAIL_LENGTH - 1; i++) {
+                for (int i = 0; i < drop.trailLength - 1; i++) {
                     drop.yTrail[i] = drop.yTrail[i + 1];
                     drop.chars[i] = drop.chars[i + 1];
                 }
-                drop.yTrail[TRAIL_LENGTH - 1] += drop.speed;
-                drop.chars[TRAIL_LENGTH - 1] = RainDrop::randomChar();
+                drop.yTrail[drop.trailLength - 1] += drop.speed * deltaTime;
+                drop.chars[drop.trailLength - 1] = RainDrop::randomChar();
             }
 
-            // Reset if the head of the trail goes off-screen
-            if (drop.yTrail[TRAIL_LENGTH - 1] > SCREEN_HEIGHT) {
-                for (int i = 0; i < TRAIL_LENGTH; i++) {
-                    drop.yTrail[i] = -CHAR_SIZE * (TRAIL_LENGTH - i);
-                    drop.chars[i] = RainDrop::randomChar();
-                }
-                drop.trailIndex = 0;
-            } else {
-                drop.trailIndex++;
+            // Reset drop when it fully exits the screen
+            if (drop.yTrail[0] > SCREEN_HEIGHT) { // Check the top of the trail
+                drop.reset(static_cast<float>(yDist(
+                        gen))); // Restart with a new random off-screen position
             }
 
-            // Draw the trail with fading effect
-            for (int i = 0; i < std::min(drop.trailIndex, TRAIL_LENGTH); i++) {
-                int alpha = 255 * (i + 1) / TRAIL_LENGTH; // Fade effect
-                SDL_Color color = {0, static_cast<Uint8>(255 * (i + 1) / TRAIL_LENGTH), 0, static_cast<Uint8>(alpha)};
+            for (int i = 0; i < std::min(drop.trailIndex, drop.trailLength); i++) {
+                if (drop.yTrail[i] >= 0) { // Only render characters on-screen
+                    int alphaLevel = i;
+                    SDL_Texture *textTexture = charCache.getTexture(drop.chars[i], alphaLevel);
+                    if (!textTexture) continue;
 
-                // Render the character
-                std::string charStr(1, drop.chars[i]);
-                SDL_Surface *textSurface = TTF_RenderText_Solid(font, charStr.c_str(), strlen(charStr.c_str()), color);
-                if (!textSurface) continue;
-
-                SDL_Texture *textTexture = SDL_CreateTextureFromSurface(renderer, textSurface);
-                if (!textTexture) {
-                    SDL_DestroySurface(textSurface);
-                    continue;
+                    auto [w, h] = charCache.getDimensions(drop.chars[i], alphaLevel);
+                    SDL_FRect dstRect = {static_cast<float>(drop.x), drop.yTrail[i],
+                                         static_cast<float>(w), static_cast<float>(h)};
+                    SDL_RenderTexture(renderer, textTexture, nullptr, &dstRect);
                 }
-
-                SDL_FRect dstRect = {(float)drop.x, (float)drop.yTrail[i], (float)textSurface->w, (float)textSurface->h};
-                SDL_RenderTexture(renderer, textTexture, nullptr, &dstRect);
-
-                SDL_DestroyTexture(textTexture);
-                SDL_DestroySurface(textSurface);
             }
         }
 
         SDL_RenderPresent(renderer);
-        SDL_Delay(16);
+        // No SDL_Delay; relying on VSync
     }
 
-    // Cleanup
+    charCache.cleanup();
     TTF_CloseFont(font);
     TTF_Quit();
     SDL_DestroyRenderer(renderer);

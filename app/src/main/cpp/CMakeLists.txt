@@ -16,7 +16,6 @@ find_package(SDL3_image REQUIRED CONFIG)
 find_package(SDL3_ttf REQUIRED CONFIG)
 
 
-
 # Define GLM manually as a header-only library
 add_library(glm INTERFACE)
 target_include_directories(glm INTERFACE ./../../../libs/glm)
@@ -39,20 +38,28 @@ add_library(glm::glm ALIAS glm)
 add_library(maze3D SHARED
         # List C/C++ source files with relative paths to this CMakeLists.txt.
         maze3D.cpp
-        utils/utils.cpp
-        utils/utils.h)
+
+)
+
 add_library(matrix SHARED
         matrix.cpp
         utils/utils.cpp
         utils/utils.h
 )
 
+add_library(matrix_sdl_delay SHARED
+
+        matrix_sdl_delay_v.cpp
+        utils/utils.cpp
+        utils/utils.h
+)
+
 # Find GLESv3 library explicitly (Android NDK provides this)
 find_library(GLES3_LIBRARY NAMES GLESv3 libGLESv3
-       )
-if(NOT GLES3_LIBRARY)
+)
+if (NOT GLES3_LIBRARY)
     message(FATAL_ERROR "GLESv3 library not found. Ensure your NDK supports GLESv3.")
-endif()
+endif ()
 
 
 # Specifies libraries CMake should link to your target library. You
@@ -61,9 +68,14 @@ endif()
 target_link_libraries(maze3D PRIVATE
         # List libraries link to the target library
         android
-        log SDL3::SDL3 SDL3_image::SDL3_image  ${GLES3_LIBRARY}  glm::glm)
+        log SDL3::SDL3 SDL3_image::SDL3_image ${GLES3_LIBRARY} glm::glm)
 
 target_link_libraries(matrix PRIVATE
+        # List libraries link to the target library
+        android
+        log SDL3::SDL3 SDL3_ttf::SDL3_ttf)
+
+target_link_libraries(matrix_sdl_delay PRIVATE
         # List libraries link to the target library
         android
         log SDL3::SDL3 SDL3_ttf::SDL3_ttf)

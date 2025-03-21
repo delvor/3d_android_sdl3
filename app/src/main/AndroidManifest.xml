@@ -32,7 +32,11 @@
             <meta-data
                 android:name="android.app.lib_name"
                 android:value="matrix" />
-
+        </activity>
+        <activity android:name=".MatrixNatSdlDelayActivity">
+            <meta-data
+                android:name="android.app.lib_name"
+                android:value="matrix_sdl_delay" />
         </activity>
     </application>
 

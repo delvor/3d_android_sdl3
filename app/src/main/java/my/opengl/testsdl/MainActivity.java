@@ -16,6 +16,7 @@ public class MainActivity extends AppCompatActivity {
 
         Button gameButton = findViewById(R.id.launchButton);
         Button matrixButton = findViewById(R.id.button_matrix);
+        Button matrixSdlDelayButton = findViewById(R.id.button_matrix_sdl_delay);
 
         gameButton.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -30,5 +31,6 @@ public class MainActivity extends AppCompatActivity {
                 startActivity(new Intent(MainActivity.this, MatrixNatActivity.class));
             }
         });
+        matrixSdlDelayButton.setOnClickListener((view -> startActivity(new Intent(MainActivity.this, MatrixNatSdlDelayActivity.class))));
     }
 }

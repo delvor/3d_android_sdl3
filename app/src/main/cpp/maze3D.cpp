@@ -6,9 +6,9 @@
 #include <GLES3/gl3.h>
 #else
 #include <GL/glew.h>
+#define _USE_MATH_DEFINES
 #endif
 
-#define _USE_MATH_DEFINES
 
 #include <cmath>
 #include <vector>
