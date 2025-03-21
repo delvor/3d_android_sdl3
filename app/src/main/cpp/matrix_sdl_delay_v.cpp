@@ -169,7 +169,7 @@ int runMatrixScreensaver() {
 
         for (auto &drop: drops) {
             if (drop.trailIndex < drop.trailLength) {
-                drop.yTrail[drop.trailIndex] += drop.speed;
+                drop.yTrail[drop.trailIndex] += (float)drop.speed;
                 drop.chars[drop.trailIndex] = RainDrop::randomChar();
                 drop.trailIndex++;
             } else {
@@ -177,12 +177,12 @@ int runMatrixScreensaver() {
                     drop.yTrail[i] = drop.yTrail[i + 1];
                     drop.chars[i] = drop.chars[i + 1];
                 }
-                drop.yTrail[drop.trailLength - 1] += drop.speed;
+                drop.yTrail[drop.trailLength - 1] += (float)drop.speed;
                 drop.chars[drop.trailLength - 1] = RainDrop::randomChar();
             }
 
             // Reset drop when it fully exits the screen
-            if (drop.yTrail[0] > SCREEN_HEIGHT) { // Check the top of the trail
+            if (drop.yTrail[0] > (float)SCREEN_HEIGHT) { // Check the top of the trail
                 drop.reset(static_cast<float>(yDist(
                         gen))); // Restart with a new random off-screen position
             }

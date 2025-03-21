@@ -93,7 +93,7 @@ struct RainDrop {
         static const std::string matrixChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()";
         static std::random_device rd;
         static std::mt19937 gen(rd());
-        static std::uniform_int_distribution<> dist(0, matrixChars.size() - 1);
+        static std::uniform_int_distribution<> dist(0, (float)matrixChars.size() - 1);
         return matrixChars[dist(gen)];
     }
 
@@ -158,7 +158,7 @@ int runMatrixScreensaver() {
 
     while (running) {
         Uint64 currentTime = SDL_GetTicks();
-        deltaTime = (currentTime - lastTime) / 1000.0f;
+        deltaTime = ((float)currentTime - (float)lastTime) / 1000.0f;
         lastTime = currentTime;
 
         while (SDL_PollEvent(&event)) {
@@ -186,7 +186,7 @@ int runMatrixScreensaver() {
             }
 
             // Reset drop when it fully exits the screen
-            if (drop.yTrail[0] > SCREEN_HEIGHT) { // Check the top of the trail
+            if (drop.yTrail[0] > (float)SCREEN_HEIGHT) { // Check the top of the trail
                 drop.reset(static_cast<float>(yDist(
                         gen))); // Restart with a new random off-screen position
             }

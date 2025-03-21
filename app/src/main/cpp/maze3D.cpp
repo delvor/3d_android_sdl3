@@ -32,7 +32,7 @@ const float WIRE_OFFSET = 0.001f;  // Small offset towards camera to prevent z-f
 std::vector<float> *convertQuadsToTriangles(const std::vector<float> &quadVertexData)
 {
     std::vector<float> *triangleVertexData = new std::vector<float>();
-    ;
+
 
     for (size_t i = 0; i < quadVertexData.size(); i += 24) // 24 floats per quad (4 verts * 6 floats)
     {
@@ -334,8 +334,8 @@ public:
         int mapWidth = static_cast<int>(map[0].size());
         int mapHeight = static_cast<int>(map.size());
 
-        if (newX - radius < 0 || newX + radius > mapWidth || newZ - radius < 0 ||
-            newZ + radius > mapHeight)
+        if (newX - radius < 0 || newX + radius > (float)mapWidth || newZ - radius < 0 ||
+            newZ + radius > (float)mapHeight)
         {
             if (COLLISION_SDL_LOG_ENABLED)
                 SDL_Log("Collides with wall");
@@ -376,7 +376,7 @@ public:
     void move(bool forward, bool backward, bool turnLeft, bool turnRight,
               const std::vector<std::vector<int>> &map)
     {
-        float rad = angle * M_PI / 180.0f;
+        float rad = (float)angle * M_PI / 180.0f;
         float dirX = sin(rad);
         float dirZ = -cos(rad);
 
@@ -595,8 +595,8 @@ public:
                 if (map[z][x] == 1)
                 {
                     cubeCount++;
-                    float r = static_cast<float>(x) / (width - 1);
-                    float g = static_cast<float>(z) / (height - 1);
+                    float r = static_cast<float>(x) / (float)(width - 1);
+                    float g = static_cast<float>(z) / (float)(height - 1);
                     float b = 0.5f + 0.5f * (1.0f - r - g);
                     r = std::max(0.0f, std::min(1.0f, r));
                     g = std::max(0.0f, std::min(1.0f, g));
@@ -604,9 +604,9 @@ public:
 
                     for (int i = 0; i < 24 * 6; i += 6) // 24 vertices per cube
                     {
-                        cubeVertexData->push_back(cubeVertices[i] + x + 0.5f);
+                        cubeVertexData->push_back(cubeVertices[i] + (float)x + 0.5f);
                         cubeVertexData->push_back(cubeVertices[i + 1]);
-                        cubeVertexData->push_back(cubeVertices[i + 2] + z + 0.5f);
+                        cubeVertexData->push_back(cubeVertices[i + 2] + (float)z + 0.5f);
                         cubeVertexData->push_back(r);
                         cubeVertexData->push_back(g);
                         cubeVertexData->push_back(b);
@@ -615,9 +615,9 @@ public:
                         float dx = (cubeVertices[i] > 0) ? WIRE_OFFSET : -WIRE_OFFSET;
                         float dy = (cubeVertices[i + 1] > 0) ? -WIRE_OFFSET : WIRE_OFFSET;
                         float dz = (cubeVertices[i + 2] > 0) ? WIRE_OFFSET : -WIRE_OFFSET;
-                        wireQuads->push_back(cubeVertices[i] + x + 0.5f + dx);
+                        wireQuads->push_back(cubeVertices[i] + (float)x + 0.5f + dx);
                         wireQuads->push_back(cubeVertices[i + 1] + dy);
-                        wireQuads->push_back(cubeVertices[i + 2] + z + 0.5f + dz);
+                        wireQuads->push_back(cubeVertices[i + 2] + (float)z + 0.5f + dz);
                         wireQuads->push_back(r);
                         wireQuads->push_back(g);
                         wireQuads->push_back(b);
@@ -981,10 +981,10 @@ int main(int argc, char *argv[])
                 case SDL_EVENT_FINGER_DOWN:
 
                 {
-                    float touchX = event.tfinger.x * SCREEN_WIDTH;
+                    float touchX = event.tfinger.x * (float)SCREEN_WIDTH;
                     lastTouchX = touchX;
 
-                    if (touchX < SCREEN_WIDTH / 2)
+                    if (touchX < (float)SCREEN_WIDTH / 2)
                     {
                         isTurning = true;
                         SDL_Log("Finger down on left half, starting turn gesture at x=%f", touchX);
@@ -1015,7 +1015,7 @@ int main(int argc, char *argv[])
                 case SDL_EVENT_FINGER_MOTION:
                     if (isTurning)
                     {
-                        float touchX = event.tfinger.x * SCREEN_WIDTH;
+                        float touchX = event.tfinger.x * (float)SCREEN_WIDTH;
                         float deltaX = touchX - lastTouchX;
 
                         if (deltaX > 0)
