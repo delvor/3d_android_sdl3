@@ -67,6 +67,7 @@ dependencies {
     implementation(libs.activity)
     implementation(libs.navigation.fragment.ktx)
     implementation(libs.navigation.ui.ktx)
+    implementation(files("libs/SDL3_ttf-3.2.0.aar"))
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.ext.junit)

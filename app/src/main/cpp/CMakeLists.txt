@@ -13,6 +13,7 @@ project("testsdl")
 
 find_package(SDL3 REQUIRED CONFIG)
 find_package(SDL3_image REQUIRED CONFIG)
+find_package(SDL3_ttf REQUIRED CONFIG)
 
 
 
@@ -65,4 +66,4 @@ target_link_libraries(maze3D PRIVATE
 target_link_libraries(matrix PRIVATE
         # List libraries link to the target library
         android
-        log SDL3::SDL3)
+        log SDL3::SDL3 SDL3_ttf::SDL3_ttf)

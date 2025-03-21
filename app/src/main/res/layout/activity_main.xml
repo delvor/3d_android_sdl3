@@ -10,10 +10,10 @@
         android:id="@+id/launchButton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Launch 3D Maze Activity" />
+        android:text="@string/launch_3d_maze_activity_opengles_3_0" />
     <Button
         android:id="@+id/button_matrix"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Start Matrix Screensaver" />
+        android:text="@string/launch_matrix_screensaver_sdl3" />
 </LinearLayout>
