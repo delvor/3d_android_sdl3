@@ -6,30 +6,29 @@ plugins {
 
 configure<ApplicationExtension> {
 
-    namespace = "my.opengl.testsdl"
-    buildToolsVersion = "36.0.0"
-    compileSdk = 35
+    namespace = ProjectInfo.NAMESPACE
+    buildToolsVersion = ProjectInfo.BUILD_TOOLS_VERSION
+    compileSdk = ProjectInfo.COMPILE_SDK
 
     defaultConfig {
-        applicationId = "my.opengl.testsdl"
-        minSdk = 26
-        targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        applicationId = ProjectInfo.APPLICATION_ID
+        minSdk = ProjectInfo.MIN_SDK
+        //noinspection OldTargetApi,EditedTargetSdkVersion
+        targetSdk = ProjectInfo.TARGET_SDK
+        versionCode = ProjectInfo.versionCode
+        versionName = ProjectInfo.versionName
 
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner = ProjectInfo.TEST_INSTRUMENTATION_RUNNER
 
         ndk {
             abiFilters.clear()
-            abiFilters.addAll(listOf("armeabi-v7a", "arm64-v8a", "x86_64", "x86"))
+            abiFilters.addAll(ProjectInfo.abiFilters)
         }
     }
 
     buildFeatures {
         prefab = true
-
     }
-
 
     buildTypes {
         release {
@@ -37,7 +36,7 @@ configure<ApplicationExtension> {
             isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
+                "proguard-rules.pro",
             )
         }
     }
@@ -47,12 +46,11 @@ configure<ApplicationExtension> {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-
     externalNativeBuild {
-        ndkVersion = "29.0.13113456"
+        ndkVersion = ProjectInfo.NDK_VERSION
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")
-            version = "4.0.2"
+            version = ProjectInfo.CMAKE_VERSION
         }
     }
     buildFeatures {
@@ -81,6 +79,4 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.ext.junit)
     androidTestImplementation(libs.espresso.core)
-
-
 }
