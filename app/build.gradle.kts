@@ -74,7 +74,7 @@ dependencies {
     //SDL3
     implementation(files("libs/SDL3-3.4.20.aar"))
     implementation(files("libs/SDL3_image-3.4.8.aar"))
-    implementation(files("libs/SDL3_ttf-3.2.2.aar"))
+    implementation(files("libs/SDL3_ttf-3.3.0.aar"))
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.ext.junit)
