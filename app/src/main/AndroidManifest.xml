@@ -41,8 +41,7 @@
         <activity
             android:name=".RaycasterPitchActivity"
             android:configChanges="layoutDirection|locale|fontScale|orientation|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode"
-            android:exported="false"
-            android:screenOrientation="landscape">
+            android:exported="false">
             <meta-data
                 android:name="android.app.lib_name"
                 android:value="raycaster_pitch" />
