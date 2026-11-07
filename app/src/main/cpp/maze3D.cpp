@@ -10,6 +10,7 @@
 #endif
 
 
+#include <algorithm>
 #include <cmath>
 #include <vector>
 #include <iostream>
@@ -24,15 +25,12 @@ int SCREEN_HEIGHT;
 const bool COLLISION_ENABLED = true;
 const bool POSITION_SDL_LOG_ENABLED = false;
 const bool COLLISION_SDL_LOG_ENABLED = true;
-const bool WIRE_ENABLED = true;
-const float WIRE_THICKNESS = 3.5f; // Adjustable wireframe thickness
-const float WIRE_OFFSET = 0.001f;  // Small offset towards camera to prevent z-fighting
+const float CUBE_EDGE_WIDTH_PIXELS = 3.0f;
 
-// Updated to handle positions and colors in one pass
+// Adds quad-edge coordinates so the fragment shader can draw pixel-width outlines.
 std::vector<float> *convertQuadsToTriangles(const std::vector<float> &quadVertexData)
 {
     std::vector<float> *triangleVertexData = new std::vector<float>();
-    ;
 
     for (size_t i = 0; i < quadVertexData.size(); i += 24) // 24 floats per quad (4 verts * 6 floats)
     {
@@ -49,21 +47,22 @@ std::vector<float> *convertQuadsToTriangles(const std::vector<float> &quadVertex
         float v3[6] = {quadVertexData[i + 18], quadVertexData[i + 19], quadVertexData[i + 20],
                        quadVertexData[i + 21], quadVertexData[i + 22], quadVertexData[i + 23]};
 
-        // Triangle 1: v0-v1-v2
-        for (int j = 0; j < 6; ++j)
-            triangleVertexData->push_back(v0[j]);
-        for (int j = 0; j < 6; ++j)
-            triangleVertexData->push_back(v1[j]);
-        for (int j = 0; j < 6; ++j)
-            triangleVertexData->push_back(v2[j]);
+        auto appendVertex = [&](const float vertex[6], float edgeX, float edgeY)
+        {
+            for (int j = 0; j < 6; ++j)
+                triangleVertexData->push_back(vertex[j]);
+            triangleVertexData->push_back(edgeX);
+            triangleVertexData->push_back(edgeY);
+            triangleVertexData->push_back(1.0f);
+        };
 
-        // Triangle 2: v0-v2-v3
-        for (int j = 0; j < 6; ++j)
-            triangleVertexData->push_back(v0[j]);
-        for (int j = 0; j < 6; ++j)
-            triangleVertexData->push_back(v2[j]);
-        for (int j = 0; j < 6; ++j)
-            triangleVertexData->push_back(v3[j]);
+        appendVertex(v0, 0.0f, 1.0f);
+        appendVertex(v1, 0.0f, 0.0f);
+        appendVertex(v2, 1.0f, 0.0f);
+
+        appendVertex(v0, 1.0f, 0.0f);
+        appendVertex(v2, 0.0f, 1.0f);
+        appendVertex(v3, 0.0f, 0.0f);
     }
 
     return triangleVertexData;
@@ -253,39 +252,51 @@ public:
 
     CubeShader(const char *vertexSource, const char *fragmentSource)
     {
-        SDL_Log("Creating cube vertex shader...");
-        GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
-        glShaderSource(vertexShader, 1, &vertexSource, nullptr);
-        glCompileShader(vertexShader);
-        checkShaderError(vertexShader, "Cube Vertex");
-
-        SDL_Log("Creating cube fragment shader...");
-        GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-        glShaderSource(fragmentShader, 1, &fragmentSource, nullptr);
-        glCompileShader(fragmentShader);
-        checkShaderError(fragmentShader, "Cube Fragment");
-
-        SDL_Log("Linking cube shader program...");
-        program = glCreateProgram();
-        glAttachShader(program, vertexShader);
-        glAttachShader(program, fragmentShader);
-        glLinkProgram(program);
-
-        GLint success;
-        glGetProgramiv(program, GL_LINK_STATUS, &success);
-        if (!success)
+        program = createProgram(vertexSource, fragmentSource);
+        if (!program)
         {
-            char infoLog[512];
-            glGetProgramInfoLog(program, 512, nullptr, infoLog);
-            SDL_Log("Cube Shader linking failed: %s", infoLog);
+            SDL_Log("Cube edge shader unavailable; falling back to solid-color cubes.");
+#ifdef __ANDROID__
+            const char *fallbackVertexSource = R"(#version 300 es
+                precision mediump float;
+                layout(location=0) in vec3 aPos;
+                layout(location=1) in vec3 aColor;
+                out vec3 fragColor;
+                uniform mat4 model, view, projection;
+                void main() {
+                    gl_Position = projection * view * model * vec4(aPos, 1.0);
+                    fragColor = aColor;
+                }
+            )";
+            const char *fallbackFragmentSource = R"(#version 300 es
+                precision mediump float;
+                in vec3 fragColor;
+                out vec4 FragColor;
+                void main() {
+                    FragColor = vec4(fragColor, 1.0);
+                }
+            )";
+#else
+            const char *fallbackVertexSource = R"(#version 330 core
+                layout(location=0) in vec3 aPos;
+                layout(location=1) in vec3 aColor;
+                out vec3 fragColor;
+                uniform mat4 model, view, projection;
+                void main() {
+                    gl_Position = projection * view * model * vec4(aPos, 1.0);
+                    fragColor = aColor;
+                }
+            )";
+            const char *fallbackFragmentSource = R"(#version 330 core
+                in vec3 fragColor;
+                out vec4 FragColor;
+                void main() {
+                    FragColor = vec4(fragColor, 1.0);
+                }
+            )";
+#endif
+            program = createProgram(fallbackVertexSource, fallbackFragmentSource);
         }
-        else
-        {
-            SDL_Log("Cube shader program linked and validated: %u", program);
-        }
-
-        glDeleteShader(vertexShader);
-        glDeleteShader(fragmentShader);
         SDL_Log("Cube shader program created: %u", program);
     }
 
@@ -299,20 +310,58 @@ public:
     }
 
 private:
-    void checkShaderError(GLuint shader, const std::string &type)
+    GLuint compileShader(GLenum shaderType, const char *source, const char *name)
     {
+        GLuint shader = glCreateShader(shaderType);
+        glShaderSource(shader, 1, &source, nullptr);
+        glCompileShader(shader);
+
         GLint success;
         glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
         if (!success)
         {
             char infoLog[512];
             glGetShaderInfoLog(shader, 512, nullptr, infoLog);
-            SDL_Log("%s compilation failed: %s", type.c_str(), infoLog);
+            SDL_Log("%s compilation failed: %s", name, infoLog);
+            glDeleteShader(shader);
+            return 0;
         }
-        else
+
+        return shader;
+    }
+
+    GLuint createProgram(const char *vertexSource, const char *fragmentSource)
+    {
+        GLuint vertexShader = compileShader(GL_VERTEX_SHADER, vertexSource, "Cube vertex shader");
+        if (!vertexShader)
+            return 0;
+
+        GLuint fragmentShader = compileShader(GL_FRAGMENT_SHADER, fragmentSource, "Cube fragment shader");
+        if (!fragmentShader)
         {
-            SDL_Log("%s shader compiled", type.c_str());
+            glDeleteShader(vertexShader);
+            return 0;
         }
+
+        GLuint shaderProgram = glCreateProgram();
+        glAttachShader(shaderProgram, vertexShader);
+        glAttachShader(shaderProgram, fragmentShader);
+        glLinkProgram(shaderProgram);
+
+        GLint success;
+        glGetProgramiv(shaderProgram, GL_LINK_STATUS, &success);
+        if (!success)
+        {
+            char infoLog[512];
+            glGetProgramInfoLog(shaderProgram, 512, nullptr, infoLog);
+            SDL_Log("Cube shader linking failed: %s", infoLog);
+            glDeleteProgram(shaderProgram);
+            shaderProgram = 0;
+        }
+
+        glDeleteShader(vertexShader);
+        glDeleteShader(fragmentShader);
+        return shaderProgram;
     }
 };
 
@@ -326,7 +375,7 @@ public:
     float radius;
 
     Player(float startX, float startY, float startZ)
-            : x(startX), y(startY), z(startZ), angle(90.0f), moveSpeed(0.05f), turnSpeed(2.5f),
+            : x(startX), y(startY), z(startZ), angle(90.0f), moveSpeed(0.12f), turnSpeed(2.5f),
               radius(0.10f) {}
 
     bool collides(float newX, float newZ, const std::vector<std::vector<int>> &map)
@@ -373,30 +422,17 @@ public:
         return false;
     }
 
-    void move(bool forward, bool backward, bool turnLeft, bool turnRight,
+    void move(float movement, float turning, float turnSpeedMultiplier,
               const std::vector<std::vector<int>> &map)
     {
+        angle += turning * turnSpeed * turnSpeedMultiplier;
+
         float rad = angle * M_PI / 180.0f;
         float dirX = sin(rad);
         float dirZ = -cos(rad);
 
-        float newX = x;
-        float newZ = z;
-
-        if (turnLeft)
-            angle -= turnSpeed;
-        if (turnRight)
-            angle += turnSpeed;
-        if (forward)
-        {
-            newX += dirX * moveSpeed;
-            newZ += dirZ * moveSpeed;
-        }
-        if (backward)
-        {
-            newX -= dirX * moveSpeed;
-            newZ -= dirZ * moveSpeed;
-        }
+        float newX = x + dirX * moveSpeed * movement;
+        float newZ = z + dirZ * moveSpeed * movement;
 
         if (!COLLISION_ENABLED || !collides(newX, newZ, map))
         {
@@ -404,7 +440,7 @@ public:
             z = newZ;
         }
 
-        if ((forward || backward || turnLeft || turnRight) && POSITION_SDL_LOG_ENABLED)
+        if ((movement != 0.0f || turning != 0.0f) && POSITION_SDL_LOG_ENABLED)
         {
             SDL_Log("position.x - %f, position.y - %f", x, y);
         }
@@ -415,40 +451,44 @@ class Level
 {
 private:
     std::vector<std::vector<int>> map;
-    int width, height;
+    int height, width;
     GLuint cubeVao, cubeVbo;   // For filled cubes (triangles)
-    GLuint wireVao, wireVbo;   // For wireframe (line loops)
     GLuint floorVao, floorVbo; // For floor/ceiling
     CubeShader *cubeShader;
     Shader *flatShader;
-    std::vector<float> *cubeVertexData;   // Initial quad data for wireframe
+    std::vector<float> *cubeVertexData;   // Initial quad data for filled cubes
     std::vector<float> *flatVertexData;   // Initial quad data for floor/ceiling
     std::vector<float> *cubeTriangleData; // Converted triangle data for filled cubes
     std::vector<float> *flatTriangleData; // Converted triangle data for floor/ceiling
-    std::vector<float> *wireQuads;        // wireQuads to fix horizontal mesh
 
 #ifdef __ANDROID__
     const char *cubeVertexShaderSource = R"(#version 300 es
-        precision mediump float;
+        precision highp float;
         layout(location=0) in vec3 aPos;
         layout(location=1) in vec3 aColor;
+        layout(location=2) in vec3 aEdgeDistance;
         out vec3 fragColor;
+        out vec3 edgeDistance;
         uniform mat4 model, view, projection;
-        uniform bool isWireframe; // Keep for logic distinction
         void main() {
             gl_Position = projection * view * model * vec4(aPos, 1.0);
             fragColor = aColor;
+            edgeDistance = aEdgeDistance;
         }
     )";
 
     const char *cubeFragmentShaderSource = R"(#version 300 es
-    precision mediump float;
+    precision highp float;
     in vec3 fragColor;
-    uniform bool useOverrideColor;
+    in vec3 edgeDistance;
+    uniform float edgeWidthPixels;
     out vec4 FragColor;
     void main() {
-        vec3 color = useOverrideColor ? vec3(0.0, 0.0, 0.0) : fragColor;
-        FragColor = vec4(color, 1.0);
+        vec3 pixelDistance = edgeDistance / max(fwidth(edgeDistance), vec3(0.0001));
+        float distanceToEdge = min(pixelDistance.x, min(pixelDistance.y, pixelDistance.z));
+        float edge = 1.0 - smoothstep(edgeWidthPixels - 0.5, edgeWidthPixels + 0.5,
+                                     distanceToEdge);
+        FragColor = vec4(mix(fragColor, vec3(0.0), edge), 1.0);
     }
 )";
     const char *flatVertexShaderSource = R"(#version 300 es
@@ -476,22 +516,28 @@ private:
     const char *cubeVertexShaderSource = R"(#version 330 core
         layout(location=0) in vec3 aPos;
         layout(location=1) in vec3 aColor;
+        layout(location=2) in vec3 aEdgeDistance;
         out vec3 fragColor;
+        out vec3 edgeDistance;
         uniform mat4 model, view, projection;
-        uniform bool isWireframe; // Keep for logic distinction
         void main() {
             gl_Position = projection * view * model * vec4(aPos, 1.0);
             fragColor = aColor;
+            edgeDistance = aEdgeDistance;
         }
     )";
 
     const char *cubeFragmentShaderSource = R"(#version 330 core
     in vec3 fragColor;
-    uniform bool useOverrideColor;
+    in vec3 edgeDistance;
+    uniform float edgeWidthPixels;
     out vec4 FragColor;
     void main() {
-        vec3 color = useOverrideColor ? vec3(0.0, 0.0, 0.0) : fragColor;
-        FragColor = vec4(color, 1.0);
+        vec3 pixelDistance = edgeDistance / max(fwidth(edgeDistance), vec3(0.0001));
+        float distanceToEdge = min(pixelDistance.x, min(pixelDistance.y, pixelDistance.z));
+        float edge = 1.0 - smoothstep(edgeWidthPixels - 0.5, edgeWidthPixels + 0.5,
+                                     distanceToEdge);
+        FragColor = vec4(mix(fragColor, vec3(0.0), edge), 1.0);
     }
 )";
     const char *flatVertexShaderSource = R"(#version 330 core
@@ -528,7 +574,6 @@ public:
         cubeTriangleData = new std::vector<float>();
         flatTriangleData = new std::vector<float>();
         flatVertexData = new std::vector<float>();
-        wireQuads = new std::vector<float>();
 
         setupGeometry();
     }
@@ -538,8 +583,6 @@ public:
         SDL_Log("Destroying Level...");
         glDeleteVertexArrays(1, &cubeVao);
         glDeleteBuffers(1, &cubeVbo);
-        glDeleteVertexArrays(1, &wireVao);
-        glDeleteBuffers(1, &wireVbo);
         glDeleteVertexArrays(1, &floorVao);
         glDeleteBuffers(1, &floorVbo);
         delete cubeShader;
@@ -548,7 +591,6 @@ public:
         delete cubeTriangleData;
         delete flatVertexData;
         delete flatTriangleData;
-        delete wireQuads;
     }
     void setupGeometry()
     {
@@ -581,13 +623,10 @@ public:
                 0.5f, -0.5f, 0.5f, 0.8f, 0.0f, 0.0f,   //       22 (1)
                 -0.5f, -0.5f, 0.5f, 0.8f, 0.0f, 0.0f   //       23 (0)
         };
-
-        SDL_Log("Clearing cubeVertexData and wireQuads...");
+        SDL_Log("Clearing cube vertex data...");
         cubeVertexData->clear();
-        wireQuads->clear();
-
         int cubeCount = 0;
-        SDL_Log("Building cube and wireframe data...");
+        SDL_Log("Building cube geometry...");
         for (int z = 0; z < height; ++z)
         {
             for (int x = 0; x < width; ++x)
@@ -604,23 +643,20 @@ public:
 
                     for (int i = 0; i < 24 * 6; i += 6) // 24 vertices per cube
                     {
-                        cubeVertexData->push_back(cubeVertices[i] + x + 0.5f);
-                        cubeVertexData->push_back(cubeVertices[i + 1]);
-                        cubeVertexData->push_back(cubeVertices[i + 2] + z + 0.5f);
-                        cubeVertexData->push_back(r);
-                        cubeVertexData->push_back(g);
-                        cubeVertexData->push_back(b);
+                        float shade = cubeVertices[i + 3];
+                        float cubeX = x + 0.5f;
+                        float cubeY = 0.0f;
+                        float cubeZ = z + 0.5f;
+                        float vertexX = cubeVertices[i] + cubeX;
+                        float vertexY = cubeVertices[i + 1] + cubeY;
+                        float vertexZ = cubeVertices[i + 2] + cubeZ;
+                        cubeVertexData->push_back(vertexX);
+                        cubeVertexData->push_back(vertexY);
+                        cubeVertexData->push_back(vertexZ);
+                        cubeVertexData->push_back(r * shade);
+                        cubeVertexData->push_back(g * shade);
+                        cubeVertexData->push_back(b * shade);
 
-                        // Wireframe vertices (shrink toward cube center)
-                        float dx = (cubeVertices[i] > 0) ? WIRE_OFFSET : -WIRE_OFFSET;
-                        float dy = (cubeVertices[i + 1] > 0) ? -WIRE_OFFSET : WIRE_OFFSET;
-                        float dz = (cubeVertices[i + 2] > 0) ? WIRE_OFFSET : -WIRE_OFFSET;
-                        wireQuads->push_back(cubeVertices[i] + x + 0.5f + dx);
-                        wireQuads->push_back(cubeVertices[i + 1] + dy);
-                        wireQuads->push_back(cubeVertices[i + 2] + z + 0.5f + dz);
-                        wireQuads->push_back(r);
-                        wireQuads->push_back(g);
-                        wireQuads->push_back(b);
                     }
                     if (x == 0 && z == 0)
                     {
@@ -630,14 +666,14 @@ public:
                 }
             }
         }
-        SDL_Log("Cube count: %d, cubeVertexData size: %zu, wireQuads size: %zu",
-                cubeCount, cubeVertexData->size(), wireQuads->size());
+        SDL_Log("Cube count: %d, cube vertex data size: %zu",
+                cubeCount, cubeVertexData->size());
 
         SDL_Log("Converting quads to triangles...");
         delete cubeTriangleData; // Free old data
         cubeTriangleData = convertQuadsToTriangles(*cubeVertexData);
         SDL_Log("Cube triangles: %zu vertices, Cube quads: %zu vertices",
-                cubeTriangleData->size() / 6, cubeVertexData->size() / 6);
+                cubeTriangleData->size() / 9, cubeVertexData->size() / 6);
 
         SDL_Log("Setting up floor and ceiling...");
         float floorColor[3] = {0.5f, 0.5f, 0.5f};
@@ -657,29 +693,14 @@ public:
         glBindBuffer(GL_ARRAY_BUFFER, cubeVbo);
         glBufferData(GL_ARRAY_BUFFER, cubeTriangleData->size() * sizeof(float),
                      cubeTriangleData->data(), GL_STATIC_DRAW);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (void *)0);
         glEnableVertexAttribArray(0);
-        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)(3 * sizeof(float)));
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (void *)(3 * sizeof(float)));
         glEnableVertexAttribArray(1);
+        glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (void *)(6 * sizeof(float)));
+        glEnableVertexAttribArray(2);
         glBindVertexArray(0);
         SDL_Log("Filled Cube VAO: %u, VBO: %u", cubeVao, cubeVbo);
-
-        // Wireframe VAO/VBO using quad data
-        if (WIRE_ENABLED)
-        {
-            glGenVertexArrays(1, &wireVao);
-            glGenBuffers(1, &wireVbo);
-            glBindVertexArray(wireVao);
-            glBindBuffer(GL_ARRAY_BUFFER, wireVbo);
-            glBufferData(GL_ARRAY_BUFFER, wireQuads->size() * sizeof(float),
-                         wireQuads->data(), GL_STATIC_DRAW);
-            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)0);
-            glEnableVertexAttribArray(0);
-            glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)(3 * sizeof(float)));
-            glEnableVertexAttribArray(1);
-            glBindVertexArray(0);
-            SDL_Log("Wireframe VAO: %u, VBO: %u", wireVao, wireVbo);
-        }
 
         // Floor/Ceiling VAO/VBO
         glGenVertexArrays(1, &floorVao);
@@ -732,42 +753,11 @@ public:
         glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
         glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
         glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
-
         glBindVertexArray(cubeVao);
-        glUniform1i(glGetUniformLocation(cubeShader->program, "useOverrideColor"), GL_FALSE);
-        glUniform1i(glGetUniformLocation(cubeShader->program, "isWireframe"), GL_FALSE);
-        // glUniform1f(glGetUniformLocation(cubeShader->program, "wireOffset"), 0.0f);
-        glBindVertexArray(cubeVao);
-        // SDL_Log("Drawing cube triangles: %zu vertices", cubeTriangleData->size() / 6);
-        glDrawArrays(GL_TRIANGLES, 0, cubeTriangleData->size() / 6);
+        glUniform1f(glGetUniformLocation(cubeShader->program, "edgeWidthPixels"),
+                    CUBE_EDGE_WIDTH_PIXELS);
+        glDrawArrays(GL_TRIANGLES, 0, cubeTriangleData->size() / 9);
         glBindVertexArray(0);
-
-        if (WIRE_ENABLED)
-        {
-            glLineWidth(WIRE_THICKNESS);
-            glBindVertexArray(wireVao);
-
-            glUniform1i(glGetUniformLocation(cubeShader->program, "useOverrideColor"), GL_TRUE);
-            glUniform1i(glGetUniformLocation(cubeShader->program, "isWireframe"), GL_TRUE);
-            // glUniform1f(glGetUniformLocation(cubeShader->program, "wireOffset"), WIRE_OFFSET);
-            // SDL_Log("Wire offset set to: %f", WIRE_OFFSET); // Debug log to confirm value
-
-            int verticesPerCube = 24;                                  // 6 faces * 4 vertices
-            int cubeCount = wireQuads->size() / (verticesPerCube * 6); // Use wireQuads, not cubeVertexData
-            // SDL_Log("Drawing wireframe: %d cubes, %zu vertices", cubeCount, wireQuads->size() / 6);
-
-            for (int i = 0; i < cubeCount; ++i)
-            {
-                int offset = i * verticesPerCube;
-                glDrawArrays(GL_LINE_LOOP, offset + 0, 4);  // Front
-                glDrawArrays(GL_LINE_LOOP, offset + 4, 4);  // Back
-                glDrawArrays(GL_LINE_LOOP, offset + 8, 4);  // Left
-                glDrawArrays(GL_LINE_LOOP, offset + 12, 4); // Right
-                glDrawArrays(GL_LINE_LOOP, offset + 16, 4); // Top
-                glDrawArrays(GL_LINE_LOOP, offset + 20, 4); // Bottom
-            }
-            glBindVertexArray(0);
-        }
 
         GLenum error = glGetError();
         if (error != GL_NO_ERROR)
@@ -899,9 +889,36 @@ int main(int argc, char *argv[])
     SDL_Event event;
     bool moveForward = false, moveBackward = false, turnLeft = false, turnRight = false;
 
-    // Touch control variables
-    bool isTurning = false;  // Track if we're in a turning gesture
-    float lastTouchX = 0.0f; // Last X position of the finger for turning
+    bool touchActive = false;
+    SDL_FingerID activeFingerId = 0;
+    float touchMovement = 0.0f;
+    float touchTurning = 0.0f;
+    float touchTurnSpeedMultiplier = 1.0f;
+
+    auto updateTouchControls = [&](float touchX, float touchY)
+    {
+        const float centerX = 0.5f;
+        const float centerY = 0.75f;
+        const float halfHeight = 0.25f;
+        const float deadZone = 0.08f;
+
+        float horizontal = std::max(-1.0f, std::min((touchX - centerX) / centerX, 1.0f));
+        float vertical = std::max(-1.0f, std::min((centerY - touchY) / halfHeight, 1.0f));
+
+        auto applyDeadZone = [deadZone](float axis)
+        {
+            float magnitude = std::abs(axis);
+            if (magnitude <= deadZone)
+                return 0.0f;
+            return std::copysign((magnitude - deadZone) / (1.0f - deadZone), axis);
+        };
+
+        touchTurning = applyDeadZone(horizontal);
+        touchMovement = applyDeadZone(vertical);
+        float distanceFromCenter = std::sqrt(horizontal * horizontal + vertical * vertical) /
+                                   std::sqrt(2.0f);
+        touchTurnSpeedMultiplier = 1.0f + 0.25f * distanceFromCenter;
+    };
 
     while (running)
     {
@@ -979,59 +996,31 @@ int main(int argc, char *argv[])
                     break;
 
                 case SDL_EVENT_FINGER_DOWN:
-
-                {
-                    float touchX = event.tfinger.x * SCREEN_WIDTH;
-                    lastTouchX = touchX;
-
-                    if (touchX < SCREEN_WIDTH / 2)
+                    if (!touchActive && event.tfinger.y >= 0.5f)
                     {
-                        isTurning = true;
-                        SDL_Log("Finger down on left half, starting turn gesture at x=%f", touchX);
-                    }
-                    else
-                    {
-                        moveBackward = true;
-                        SDL_Log("Finger down on right half, moveBackward = true at x=%f", touchX);
+                        touchActive = true;
+                        activeFingerId = event.tfinger.fingerID;
+                        updateTouchControls(event.tfinger.x, event.tfinger.y);
                     }
                     break;
-                }
 
                 case SDL_EVENT_FINGER_UP:
-                    if (isTurning)
+                case SDL_EVENT_FINGER_CANCELED:
+                    if (touchActive && event.tfinger.fingerID == activeFingerId)
                     {
-                        isTurning = false;
-                        turnLeft = false;
-                        turnRight = false;
-                        SDL_Log("Finger up, stopping turn gesture");
-                    }
-                    else
-                    {
-                        moveBackward = false;
-                        SDL_Log("Finger up, moveBackward = false");
+                        touchActive = false;
+                        touchMovement = 0.0f;
+                        touchTurning = 0.0f;
+                        touchTurnSpeedMultiplier = 1.0f;
                     }
                     break;
 
                 case SDL_EVENT_FINGER_MOTION:
-                    if (isTurning)
+                    if (touchActive && event.tfinger.fingerID == activeFingerId)
                     {
-                        float touchX = event.tfinger.x * SCREEN_WIDTH;
-                        float deltaX = touchX - lastTouchX;
-
-                        if (deltaX > 0)
-                        {
-                            turnRight = true;
-                            turnLeft = false;
-                            SDL_Log("Turning right, deltaX=%f", deltaX);
-                        }
-                        else if (deltaX < 0)
-                        {
-                            turnLeft = true;
-                            turnRight = false;
-                            SDL_Log("Turning left, deltaX=%f", deltaX);
-                        }
-
-                        lastTouchX = touchX;
+                        float touchX = std::max(0.0f, std::min(event.tfinger.x, 1.0f));
+                        float touchY = std::max(0.5f, std::min(event.tfinger.y, 1.0f));
+                        updateTouchControls(touchX, touchY);
                     }
                     break;
 
@@ -1043,7 +1032,14 @@ int main(int argc, char *argv[])
 
         if (!paused)
         {
-            player.move(moveForward, moveBackward, turnLeft, turnRight, level.getMap());
+            float movement = (moveForward ? 1.0f : 0.0f) -
+                             (moveBackward ? 1.0f : 0.0f) + touchMovement;
+            float turning = (turnRight ? 1.0f : 0.0f) -
+                            (turnLeft ? 1.0f : 0.0f) + touchTurning;
+            player.move(std::max(-1.0f, std::min(movement, 1.0f)),
+                        std::max(-1.0f, std::min(turning, 1.0f)),
+                        touchActive ? touchTurnSpeedMultiplier : 1.0f,
+                        level.getMap());
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             level.render(player);
             SDL_GL_SwapWindow(window);
