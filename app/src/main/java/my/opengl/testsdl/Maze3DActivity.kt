@@ -1,12 +1,7 @@
-package my.opengl.testsdl;
+package my.opengl.testsdl
 
+import org.libsdl.app.SDLActivity
 
-import org.libsdl.app.SDLActivity;
-
-public class Maze3DActivity extends SDLActivity {
-
-     @Override
-    protected String[] getLibraries() {
-        return new String[]{ "maze3D"};
-    }
+class Maze3DActivity : SDLActivity() {
+    override fun getLibraries(): Array<String> = arrayOf("maze3D")
 }

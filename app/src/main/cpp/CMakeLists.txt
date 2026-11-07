@@ -15,6 +15,12 @@ find_package(SDL3 REQUIRED CONFIG)
 find_package(SDL3_image REQUIRED CONFIG)
 find_package(SDL3_ttf REQUIRED CONFIG)
 
+add_library(quickcg STATIC quickcg_android.cpp)
+set_target_properties(quickcg PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_compile_features(quickcg PUBLIC cxx_std_11)
+target_include_directories(quickcg PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(quickcg PUBLIC SDL3::SDL3 SDL3_image::SDL3_image SDL3_ttf::SDL3_ttf)
+
 
 # Define GLM manually as a header-only library
 add_library(glm INTERFACE)
@@ -54,6 +60,8 @@ add_library(matrix_sdl_delay SHARED
         utils/utils.h
 )
 
+add_library(raycaster_pitch SHARED raycaster_pitch.cpp)
+
 # Find GLESv3 library explicitly (Android NDK provides this)
 find_library(GLES3_LIBRARY NAMES GLESv3 libGLESv3
 )
@@ -68,14 +76,16 @@ endif ()
 target_link_libraries(maze3D PRIVATE
         # List libraries link to the target library
         android
-        log SDL3::SDL3 SDL3_image::SDL3_image ${GLES3_LIBRARY} glm::glm)
+        log SDL3::SDL3 SDL3_image::SDL3_image ${GLES3_LIBRARY} glm::glm quickcg)
 
 target_link_libraries(matrix PRIVATE
         # List libraries link to the target library
         android
-        log SDL3::SDL3 SDL3_ttf::SDL3_ttf)
+        log SDL3::SDL3 SDL3_ttf::SDL3_ttf quickcg)
 
 target_link_libraries(matrix_sdl_delay PRIVATE
         # List libraries link to the target library
         android
-        log SDL3::SDL3 SDL3_ttf::SDL3_ttf)
+        log SDL3::SDL3 SDL3_ttf::SDL3_ttf quickcg)
+
+target_link_libraries(raycaster_pitch PRIVATE android log quickcg)

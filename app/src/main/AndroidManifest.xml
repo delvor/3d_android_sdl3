@@ -38,6 +38,15 @@
                 android:name="android.app.lib_name"
                 android:value="matrix_sdl_delay" />
         </activity>
+        <activity
+            android:name=".RaycasterPitchActivity"
+            android:configChanges="layoutDirection|locale|fontScale|orientation|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode"
+            android:exported="false"
+            android:screenOrientation="landscape">
+            <meta-data
+                android:name="android.app.lib_name"
+                android:value="raycaster_pitch" />
+        </activity>
     </application>
 
 </manifest>
