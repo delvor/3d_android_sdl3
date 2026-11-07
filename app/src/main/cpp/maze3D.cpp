@@ -3,7 +3,9 @@
 #include <GLES3/gl3.h>
 
 #ifdef __ANDROID__
+
 #include <GLES3/gl3.h>
+
 #else
 #include <GL/glew.h>
 #define _USE_MATH_DEFINES
@@ -26,13 +28,16 @@ const bool COLLISION_ENABLED = true;
 const bool POSITION_SDL_LOG_ENABLED = false;
 const bool COLLISION_SDL_LOG_ENABLED = true;
 const float CUBE_EDGE_WIDTH_PIXELS = 3.0f;
+const float PLAYER_FORWARD_BACKWARD_SPEED = 0.2f;
+const float TOUCH_CONTROL_HEIGHT_RATIO = 1.0f / 3.0f;
+const int TOUCH_CONTROL_FRAME_THICKNESS = 3;
 
 // Adds quad-edge coordinates so the fragment shader can draw pixel-width outlines.
-std::vector<float> *convertQuadsToTriangles(const std::vector<float> &quadVertexData)
-{
+std::vector<float> *convertQuadsToTriangles(const std::vector<float> &quadVertexData) {
     std::vector<float> *triangleVertexData = new std::vector<float>();
 
-    for (size_t i = 0; i < quadVertexData.size(); i += 24) // 24 floats per quad (4 verts * 6 floats)
+    for (size_t i = 0;
+         i < quadVertexData.size(); i += 24) // 24 floats per quad (4 verts * 6 floats)
     {
         if (i + 23 >= quadVertexData.size())
             break; // Ensure we have a full quad
@@ -47,8 +52,7 @@ std::vector<float> *convertQuadsToTriangles(const std::vector<float> &quadVertex
         float v3[6] = {quadVertexData[i + 18], quadVertexData[i + 19], quadVertexData[i + 20],
                        quadVertexData[i + 21], quadVertexData[i + 22], quadVertexData[i + 23]};
 
-        auto appendVertex = [&](const float vertex[6], float edgeX, float edgeY)
-        {
+        auto appendVertex = [&](const float vertex[6], float edgeX, float edgeY) {
             for (int j = 0; j < 6; ++j)
                 triangleVertexData->push_back(vertex[j]);
             triangleVertexData->push_back(edgeX);
@@ -71,12 +75,10 @@ std::vector<float> *convertQuadsToTriangles(const std::vector<float> &quadVertex
 // For floor/ceiling: converts quads to triangles (positions only)
 std::vector<float> *convertFlatQuadsToTriangles(const std::vector<glm::vec3> &quadVertices,
                                                 const float floorColor[3],
-                                                const float ceilingColor[3])
-{
+                                                const float ceilingColor[3]) {
     std::vector<float> *triangleData = new std::vector<float>();
 
-    for (size_t i = 0; i < quadVertices.size(); i += 4)
-    {
+    for (size_t i = 0; i < quadVertices.size(); i += 4) {
         if (i + 3 >= quadVertices.size())
             break;
         glm::vec3 v0 = quadVertices[i];
@@ -86,8 +88,7 @@ std::vector<float> *convertFlatQuadsToTriangles(const std::vector<glm::vec3> &qu
 
         // Select color and winding based on quad (floor or ceiling)
         const float *color = (i == 0) ? floorColor : ceilingColor;
-        if (i == 0)
-        { // Floor: CCW from above
+        if (i == 0) { // Floor: CCW from above
             // Triangle 1: v0-v2-v1
             triangleData->push_back(v0.x);
             triangleData->push_back(v0.y);
@@ -127,9 +128,7 @@ std::vector<float> *convertFlatQuadsToTriangles(const std::vector<glm::vec3> &qu
             triangleData->push_back(color[0]);
             triangleData->push_back(color[1]);
             triangleData->push_back(color[2]);
-        }
-        else
-        { // Ceiling: CCW from below (reverse winding)
+        } else { // Ceiling: CCW from below (reverse winding)
             // Triangle 1: v0-v1-v2 (reverse of v0-v2-v1)
             triangleData->push_back(v0.x);
             triangleData->push_back(v0.y);
@@ -175,13 +174,11 @@ std::vector<float> *convertFlatQuadsToTriangles(const std::vector<glm::vec3> &qu
     return triangleData;
 }
 
-class Shader
-{
+class Shader {
 public:
     GLuint program;
 
-    Shader(const char *vertexSource, const char *fragmentSource)
-    {
+    Shader(const char *vertexSource, const char *fragmentSource) {
         SDL_Log("Creating vertex shader...");
         GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
         glShaderSource(vertexShader, 1, &vertexSource, nullptr);
@@ -202,14 +199,11 @@ public:
 
         GLint success;
         glGetProgramiv(program, GL_LINK_STATUS, &success);
-        if (!success)
-        {
+        if (!success) {
             char infoLog[512];
             glGetProgramInfoLog(program, 512, nullptr, infoLog);
             SDL_Log("Shader linking failed: %s", infoLog);
-        }
-        else
-        {
+        } else {
             SDL_Log("Shader program linked and validated: %u", program);
         }
 
@@ -220,41 +214,33 @@ public:
 
     void use() { glUseProgram(program); }
 
-    ~Shader()
-    {
+    ~Shader() {
         SDL_Log("Deleting shader program: %u", program);
         if (program)
             glDeleteProgram(program);
     }
 
 private:
-    void checkShaderError(GLuint shader, const std::string &type)
-    {
+    void checkShaderError(GLuint shader, const std::string &type) {
         GLint success;
         glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
-        if (!success)
-        {
+        if (!success) {
             char infoLog[512];
             glGetShaderInfoLog(shader, 512, nullptr, infoLog);
             SDL_Log("%s compilation failed: %s", type.c_str(), infoLog);
-        }
-        else
-        {
+        } else {
             SDL_Log("%s shader compiled", type.c_str());
         }
     }
 };
 
-class CubeShader
-{
+class CubeShader {
 public:
     GLuint program;
 
-    CubeShader(const char *vertexSource, const char *fragmentSource)
-    {
+    CubeShader(const char *vertexSource, const char *fragmentSource) {
         program = createProgram(vertexSource, fragmentSource);
-        if (!program)
-        {
+        if (!program) {
             SDL_Log("Cube edge shader unavailable; falling back to solid-color cubes.");
 #ifdef __ANDROID__
             const char *fallbackVertexSource = R"(#version 300 es
@@ -302,24 +288,21 @@ public:
 
     void use() { glUseProgram(program); }
 
-    ~CubeShader()
-    {
+    ~CubeShader() {
         SDL_Log("Deleting cube shader program: %u", program);
         if (program)
             glDeleteProgram(program);
     }
 
 private:
-    GLuint compileShader(GLenum shaderType, const char *source, const char *name)
-    {
+    GLuint compileShader(GLenum shaderType, const char *source, const char *name) {
         GLuint shader = glCreateShader(shaderType);
         glShaderSource(shader, 1, &source, nullptr);
         glCompileShader(shader);
 
         GLint success;
         glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
-        if (!success)
-        {
+        if (!success) {
             char infoLog[512];
             glGetShaderInfoLog(shader, 512, nullptr, infoLog);
             SDL_Log("%s compilation failed: %s", name, infoLog);
@@ -330,15 +313,14 @@ private:
         return shader;
     }
 
-    GLuint createProgram(const char *vertexSource, const char *fragmentSource)
-    {
+    GLuint createProgram(const char *vertexSource, const char *fragmentSource) {
         GLuint vertexShader = compileShader(GL_VERTEX_SHADER, vertexSource, "Cube vertex shader");
         if (!vertexShader)
             return 0;
 
-        GLuint fragmentShader = compileShader(GL_FRAGMENT_SHADER, fragmentSource, "Cube fragment shader");
-        if (!fragmentShader)
-        {
+        GLuint fragmentShader = compileShader(GL_FRAGMENT_SHADER, fragmentSource,
+                                              "Cube fragment shader");
+        if (!fragmentShader) {
             glDeleteShader(vertexShader);
             return 0;
         }
@@ -350,8 +332,7 @@ private:
 
         GLint success;
         glGetProgramiv(shaderProgram, GL_LINK_STATUS, &success);
-        if (!success)
-        {
+        if (!success) {
             char infoLog[512];
             glGetProgramInfoLog(shaderProgram, 512, nullptr, infoLog);
             SDL_Log("Cube shader linking failed: %s", infoLog);
@@ -365,27 +346,23 @@ private:
     }
 };
 
-class Player
-{
+class Player {
 public:
     float x, y, z;
     float angle; // Degrees, 0 = +Z, 90 = +X, 180 = -Z, 270 = -X
-    float moveSpeed;
     float turnSpeed;
     float radius;
 
     Player(float startX, float startY, float startZ)
-            : x(startX), y(startY), z(startZ), angle(90.0f), moveSpeed(0.12f), turnSpeed(2.5f),
+            : x(startX), y(startY), z(startZ), angle(90.0f), turnSpeed(2.5f),
               radius(0.10f) {}
 
-    bool collides(float newX, float newZ, const std::vector<std::vector<int>> &map)
-    {
+    bool collides(float newX, float newZ, const std::vector<std::vector<int>> &map) {
         int mapWidth = static_cast<int>(map[0].size());
         int mapHeight = static_cast<int>(map.size());
 
         if (newX - radius < 0 || newX + radius > mapWidth || newZ - radius < 0 ||
-            newZ + radius > mapHeight)
-        {
+            newZ + radius > mapHeight) {
             if (COLLISION_SDL_LOG_ENABLED)
                 SDL_Log("Collides with wall");
 
@@ -397,12 +374,9 @@ public:
         int minZ = std::max(0, static_cast<int>(newZ - radius));
         int maxZ = std::min(mapHeight - 1, static_cast<int>(newZ + radius));
 
-        for (int z = minZ; z <= maxZ; ++z)
-        {
-            for (int x = minX; x <= maxX; ++x)
-            {
-                if (map[z][x] == 1)
-                {
+        for (int z = minZ; z <= maxZ; ++z) {
+            for (int x = minX; x <= maxX; ++x) {
+                if (map[z][x] == 1) {
                     float closestX = std::max(static_cast<float>(x),
                                               std::min(newX, static_cast<float>(x + 1)));
                     float closestZ = std::max(static_cast<float>(z),
@@ -410,10 +384,10 @@ public:
                     float dx = newX - closestX;
                     float dz = newZ - closestZ;
                     float distance = std::sqrt(dx * dx + dz * dz);
-                    if (distance < radius)
-                    {
+                    if (distance < radius) {
                         if (COLLISION_SDL_LOG_ENABLED)
-                            SDL_Log("Collides with cube. distance - %f, radius - %f", distance, radius);
+                            SDL_Log("Collides with cube. distance - %f, radius - %f", distance,
+                                    radius);
                         return true;
                     }
                 }
@@ -423,32 +397,28 @@ public:
     }
 
     void move(float movement, float turning, float turnSpeedMultiplier,
-              const std::vector<std::vector<int>> &map)
-    {
+              const std::vector<std::vector<int>> &map) {
         angle += turning * turnSpeed * turnSpeedMultiplier;
 
         float rad = angle * M_PI / 180.0f;
         float dirX = sin(rad);
         float dirZ = -cos(rad);
 
-        float newX = x + dirX * moveSpeed * movement;
-        float newZ = z + dirZ * moveSpeed * movement;
+        float newX = x + dirX * PLAYER_FORWARD_BACKWARD_SPEED * movement;
+        float newZ = z + dirZ * PLAYER_FORWARD_BACKWARD_SPEED * movement;
 
-        if (!COLLISION_ENABLED || !collides(newX, newZ, map))
-        {
+        if (!COLLISION_ENABLED || !collides(newX, newZ, map)) {
             x = newX;
             z = newZ;
         }
 
-        if ((movement != 0.0f || turning != 0.0f) && POSITION_SDL_LOG_ENABLED)
-        {
+        if ((movement != 0.0f || turning != 0.0f) && POSITION_SDL_LOG_ENABLED) {
             SDL_Log("position.x - %f, position.y - %f", x, y);
         }
     }
 };
 
-class Level
-{
+class Level {
 private:
     std::vector<std::vector<int>> map;
     int height, width;
@@ -564,8 +534,7 @@ private:
 public:
     Level(const std::vector<std::vector<int>> &levelData)
             : map(levelData), height(static_cast<int>(map.size())),
-              width(height > 0 ? static_cast<int>(map[0].size()) : 0)
-    {
+              width(height > 0 ? static_cast<int>(map[0].size()) : 0) {
         SDL_Log("Initializing Level...");
         cubeShader = new CubeShader(cubeVertexShaderSource, cubeFragmentShaderSource);
         flatShader = new Shader(flatVertexShaderSource, flatFragmentShaderSource);
@@ -578,8 +547,7 @@ public:
         setupGeometry();
     }
 
-    ~Level()
-    {
+    ~Level() {
         SDL_Log("Destroying Level...");
         glDeleteVertexArrays(1, &cubeVao);
         glDeleteBuffers(1, &cubeVbo);
@@ -592,8 +560,8 @@ public:
         delete flatVertexData;
         delete flatTriangleData;
     }
-    void setupGeometry()
-    {
+
+    void setupGeometry() {
         SDL_Log("Setting up geometry...");
 
         // Initial quad-based cube vertices
@@ -627,12 +595,9 @@ public:
         cubeVertexData->clear();
         int cubeCount = 0;
         SDL_Log("Building cube geometry...");
-        for (int z = 0; z < height; ++z)
-        {
-            for (int x = 0; x < width; ++x)
-            {
-                if (map[z][x] == 1)
-                {
+        for (int z = 0; z < height; ++z) {
+            for (int x = 0; x < width; ++x) {
+                if (map[z][x] == 1) {
                     cubeCount++;
                     float r = static_cast<float>(x) / (width - 1);
                     float g = static_cast<float>(z) / (height - 1);
@@ -658,8 +623,7 @@ public:
                         cubeVertexData->push_back(b * shade);
 
                     }
-                    if (x == 0 && z == 0)
-                    {
+                    if (x == 0 && z == 0) {
                         SDL_Log("First cube vertex: [%f, %f, %f]", (*cubeVertexData)[0],
                                 (*cubeVertexData)[1], (*cubeVertexData)[2]);
                     }
@@ -693,11 +657,13 @@ public:
         glBindBuffer(GL_ARRAY_BUFFER, cubeVbo);
         glBufferData(GL_ARRAY_BUFFER, cubeTriangleData->size() * sizeof(float),
                      cubeTriangleData->data(), GL_STATIC_DRAW);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (void *)0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (void *) 0);
         glEnableVertexAttribArray(0);
-        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (void *)(3 * sizeof(float)));
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float),
+                              (void *) (3 * sizeof(float)));
         glEnableVertexAttribArray(1);
-        glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (void *)(6 * sizeof(float)));
+        glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float),
+                              (void *) (6 * sizeof(float)));
         glEnableVertexAttribArray(2);
         glBindVertexArray(0);
         SDL_Log("Filled Cube VAO: %u, VBO: %u", cubeVao, cubeVbo);
@@ -709,9 +675,10 @@ public:
         glBindBuffer(GL_ARRAY_BUFFER, floorVbo);
         glBufferData(GL_ARRAY_BUFFER, flatTriangleData->size() * sizeof(float),
                      flatTriangleData->data(), GL_STATIC_DRAW);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *) 0);
         glEnableVertexAttribArray(0);
-        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)(3 * sizeof(float)));
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float),
+                              (void *) (3 * sizeof(float)));
         glEnableVertexAttribArray(1);
         glBindVertexArray(0);
         SDL_Log("Flat triangles: %zu", flatTriangleData->size() / 6);
@@ -719,10 +686,10 @@ public:
         SDL_Log("Geometry setup complete.");
     }
 
-    void render(const Player &player)
-    {
+    void render(const Player &player) {
         glm::mat4 projection = glm::perspective(
-                glm::radians(45.0f), static_cast<float>(SCREEN_WIDTH) / SCREEN_HEIGHT, 0.1f, 100.0f);
+                glm::radians(45.0f), static_cast<float>(SCREEN_WIDTH) / SCREEN_HEIGHT, 0.1f,
+                100.0f);
         glm::vec3 eye(player.x, player.y + 0.05f, player.z);
         glm::vec3 center = eye + glm::vec3(sin(player.angle * M_PI / 180.0f), 0.0f,
                                            -cos(player.angle * M_PI / 180.0f));
@@ -760,8 +727,7 @@ public:
         glBindVertexArray(0);
 
         GLenum error = glGetError();
-        if (error != GL_NO_ERROR)
-        {
+        if (error != GL_NO_ERROR) {
             SDL_Log("OpenGL Error during render: %d", error);
         }
     }
@@ -769,10 +735,8 @@ public:
     const std::vector<std::vector<int>> &getMap() const { return map; }
 };
 
-std::vector<std::vector<int>> generateCustomMap(int width, int height)
-{
-    if (width <= 10 || height <= 10)
-    {
+std::vector<std::vector<int>> generateCustomMap(int width, int height) {
+    if (width <= 10 || height <= 10) {
         SDL_Log("Invalid map dimensions: width=%d, height=%d. Using 10x10 default.", width, height);
         width = 10;
         height = 10;
@@ -781,22 +745,18 @@ std::vector<std::vector<int>> generateCustomMap(int width, int height)
     std::vector<std::vector<int>> map(height, std::vector<int>(width, 0));
     srand(static_cast<unsigned>(time(nullptr)));
 
-    for (int x = 0; x < width; ++x)
-    {
+    for (int x = 0; x < width; ++x) {
         map[0][x] = 1;
         map[height - 1][x] = 1;
     }
-    for (int z = 0; z < height; ++z)
-    {
+    for (int z = 0; z < height; ++z) {
         map[z][0] = 1;
         map[z][width - 1] = 1;
     }
 
     int spawnSize = 3;
-    for (int z = 1; z < height - 1; z++)
-    {
-        for (int x = 1; x < width - 1; x++)
-        {
+    for (int z = 1; z < height - 1; z++) {
+        for (int x = 1; x < width - 1; x++) {
             if (z > spawnSize || x > spawnSize)
                 map[z][x] = (rand() % 100 < 20) ? 1 : 0;
             else
@@ -806,12 +766,38 @@ std::vector<std::vector<int>> generateCustomMap(int width, int height)
     return map;
 }
 
-int main(int argc, char *argv[])
-{
+void drawTouchControlFrame() {
+    if (SCREEN_WIDTH <= 0 || SCREEN_HEIGHT <= 0)
+        return;
+
+    const int frameThickness = std::min(
+            TOUCH_CONTROL_FRAME_THICKNESS, std::max(1, SCREEN_HEIGHT / 3));
+    const int controlHeight = std::max(
+            1, static_cast<int>(SCREEN_HEIGHT * TOUCH_CONTROL_HEIGHT_RATIO));
+    const int topBorderY = std::max(0, controlHeight - frameThickness / 2);
+    GLfloat previousClearColor[4];
+    glGetFloatv(GL_COLOR_CLEAR_VALUE, previousClearColor);
+
+    glEnable(GL_SCISSOR_TEST);
+    glClearColor(0.72f, 0.76f, 0.82f, 1.0f);
+    glScissor(0, topBorderY, SCREEN_WIDTH, frameThickness);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glScissor(0, 0, frameThickness, controlHeight);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glScissor(SCREEN_WIDTH - frameThickness, 0, frameThickness, controlHeight);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glScissor(0, 0, SCREEN_WIDTH, frameThickness);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glDisable(GL_SCISSOR_TEST);
+
+    glClearColor(previousClearColor[0], previousClearColor[1],
+                 previousClearColor[2], previousClearColor[3]);
+}
+
+int main(int argc, char *argv[]) {
     SDL_Log("Starting 3D Engine...");
 
-    if (!SDL_Init(SDL_INIT_VIDEO))
-    {
+    if (!SDL_Init(SDL_INIT_VIDEO)) {
         SDL_Log("SDL_Init failed: %s", SDL_GetError());
         return -1;
     }
@@ -830,16 +816,14 @@ int main(int argc, char *argv[])
     SDL_Window *window = SDL_CreateWindow("3D Engine OpenGL 3.0", 0, 0,
                                           SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE |
                                           SDL_WINDOW_FULLSCREEN);
-    if (!window)
-    {
+    if (!window) {
         SDL_Log("Window creation failed: %s", SDL_GetError());
         SDL_Quit();
         return -1;
     }
 
     SDL_GetWindowSize(window, &SCREEN_WIDTH, &SCREEN_HEIGHT);
-    if (SCREEN_WIDTH <= 0 || SCREEN_HEIGHT <= 0)
-    {
+    if (SCREEN_WIDTH <= 0 || SCREEN_HEIGHT <= 0) {
         SDL_Log("Invalid window size: %dx%d, falling back to 800x600", SCREEN_WIDTH, SCREEN_HEIGHT);
         SCREEN_WIDTH = 600;
         SCREEN_HEIGHT = 800;
@@ -847,8 +831,7 @@ int main(int argc, char *argv[])
     SDL_Log("Initial window size: %dx%d", SCREEN_WIDTH, SCREEN_HEIGHT);
 
     SDL_GLContext glContext = SDL_GL_CreateContext(window);
-    if (!glContext)
-    {
+    if (!glContext) {
         SDL_Log("GL context creation failed: %s", SDL_GetError());
         SDL_DestroyWindow(window);
         SDL_Quit();
@@ -890,23 +873,32 @@ int main(int argc, char *argv[])
     bool moveForward = false, moveBackward = false, turnLeft = false, turnRight = false;
 
     bool touchActive = false;
+    bool touchInControlArea = false;
     SDL_FingerID activeFingerId = 0;
     float touchMovement = 0.0f;
     float touchTurning = 0.0f;
     float touchTurnSpeedMultiplier = 1.0f;
 
-    auto updateTouchControls = [&](float touchX, float touchY)
-    {
+    auto updateTouchControls = [&](float touchX, float touchY) {
+        const float controlTop = 1.0f - TOUCH_CONTROL_HEIGHT_RATIO;
+        if (touchY < controlTop) {
+            touchInControlArea = false;
+            touchMovement = 0.0f;
+            touchTurning = 0.0f;
+            touchTurnSpeedMultiplier = 1.0f;
+            return;
+        }
+
+        touchInControlArea = true;
         const float centerX = 0.5f;
-        const float centerY = 0.75f;
-        const float halfHeight = 0.25f;
+        const float centerY = controlTop + TOUCH_CONTROL_HEIGHT_RATIO * 0.5f;
+        const float halfHeight = TOUCH_CONTROL_HEIGHT_RATIO * 0.5f;
         const float deadZone = 0.08f;
 
         float horizontal = std::max(-1.0f, std::min((touchX - centerX) / centerX, 1.0f));
         float vertical = std::max(-1.0f, std::min((centerY - touchY) / halfHeight, 1.0f));
 
-        auto applyDeadZone = [deadZone](float axis)
-        {
+        auto applyDeadZone = [deadZone](float axis) {
             float magnitude = std::abs(axis);
             if (magnitude <= deadZone)
                 return 0.0f;
@@ -920,14 +912,11 @@ int main(int argc, char *argv[])
         touchTurnSpeedMultiplier = 1.0f + 0.25f * distanceFromCenter;
     };
 
-    while (running)
-    {
-        while (SDL_PollEvent(&event))
-        {
+    while (running) {
+        while (SDL_PollEvent(&event)) {
             // SDL_Log("SDL Event: %d", event.type);
 
-            switch (event.type)
-            {
+            switch (event.type) {
                 case SDL_EVENT_QUIT:
                     SDL_Log("SDL_EVENT_QUIT received, but ignoring on Android");
                     break;
@@ -949,8 +938,7 @@ int main(int argc, char *argv[])
                     break;
 
                 case SDL_EVENT_KEY_DOWN:
-                    switch (event.key.scancode)
-                    {
+                    switch (event.key.scancode) {
                         case SDL_SCANCODE_W:
                             moveForward = true;
                             break;
@@ -971,8 +959,7 @@ int main(int argc, char *argv[])
                     break;
 
                 case SDL_EVENT_KEY_UP:
-                    switch (event.key.scancode)
-                    {
+                    switch (event.key.scancode) {
                         case SDL_SCANCODE_W:
                             moveForward = false;
                             break;
@@ -996,8 +983,8 @@ int main(int argc, char *argv[])
                     break;
 
                 case SDL_EVENT_FINGER_DOWN:
-                    if (!touchActive && event.tfinger.y >= 0.5f)
-                    {
+                    if (!touchActive &&
+                        event.tfinger.y >= 1.0f - TOUCH_CONTROL_HEIGHT_RATIO) {
                         touchActive = true;
                         activeFingerId = event.tfinger.fingerID;
                         updateTouchControls(event.tfinger.x, event.tfinger.y);
@@ -1006,9 +993,9 @@ int main(int argc, char *argv[])
 
                 case SDL_EVENT_FINGER_UP:
                 case SDL_EVENT_FINGER_CANCELED:
-                    if (touchActive && event.tfinger.fingerID == activeFingerId)
-                    {
+                    if (touchActive && event.tfinger.fingerID == activeFingerId) {
                         touchActive = false;
+                        touchInControlArea = false;
                         touchMovement = 0.0f;
                         touchTurning = 0.0f;
                         touchTurnSpeedMultiplier = 1.0f;
@@ -1016,10 +1003,9 @@ int main(int argc, char *argv[])
                     break;
 
                 case SDL_EVENT_FINGER_MOTION:
-                    if (touchActive && event.tfinger.fingerID == activeFingerId)
-                    {
+                    if (touchActive && event.tfinger.fingerID == activeFingerId) {
                         float touchX = std::max(0.0f, std::min(event.tfinger.x, 1.0f));
-                        float touchY = std::max(0.5f, std::min(event.tfinger.y, 1.0f));
+                        float touchY = std::max(0.0f, std::min(event.tfinger.y, 1.0f));
                         updateTouchControls(touchX, touchY);
                     }
                     break;
@@ -1030,22 +1016,20 @@ int main(int argc, char *argv[])
             }
         }
 
-        if (!paused)
-        {
+        if (!paused) {
             float movement = (moveForward ? 1.0f : 0.0f) -
                              (moveBackward ? 1.0f : 0.0f) + touchMovement;
             float turning = (turnRight ? 1.0f : 0.0f) -
                             (turnLeft ? 1.0f : 0.0f) + touchTurning;
             player.move(std::max(-1.0f, std::min(movement, 1.0f)),
                         std::max(-1.0f, std::min(turning, 1.0f)),
-                        touchActive ? touchTurnSpeedMultiplier : 1.0f,
+                        touchInControlArea ? touchTurnSpeedMultiplier : 1.0f,
                         level.getMap());
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             level.render(player);
+            drawTouchControlFrame();
             SDL_GL_SwapWindow(window);
-        }
-        else
-        {
+        } else {
             SDL_Log("App is paused, skipping render");
             SDL_Delay(100);
         }
